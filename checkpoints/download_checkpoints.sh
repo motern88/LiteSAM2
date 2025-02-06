@@ -29,11 +29,11 @@ efficienttam_ti_1_url="${EfficientTAM_BASE_URL}/efficienttam_ti_1.pt"
 efficienttam_ti_2_url="${EfficientTAM_BASE_URL}/efficienttam_ti_2.pt"
 
 # Efficient Track Anything checkpoints
-echo "Downloading efficienttam_s.pt checkpoint..."
-$CMD $efficienttam_s_url || { echo "Failed to download checkpoint from $efficienttam_s_url"; exit 1; }
+#echo "Downloading efficienttam_s.pt checkpoint..."
+#$CMD $efficienttam_s_url || { echo "Failed to download checkpoint from $efficienttam_s_url"; exit 1; }
 
-echo "Downloading efficienttam_s_512x512.pt checkpoint..."
-$CMD $efficienttam_s_512x512_url || { echo "Failed to download checkpoint from $efficienttam_s_512x512_url"; exit 1; }
+#echo "Downloading efficienttam_s_512x512.pt checkpoint..."
+#$CMD $efficienttam_s_512x512_url || { echo "Failed to download checkpoint from $efficienttam_s_512x512_url"; exit 1; }
 
 #echo "Downloading efficienttam_s_1.pt checkpoint..."
 #$CMD $efficienttam_s_1_url || { echo "Failed to download checkpoint from $efficienttam_s_1_url"; exit 1; }
@@ -44,9 +44,9 @@ $CMD $efficienttam_s_512x512_url || { echo "Failed to download checkpoint from $
 #echo "Downloading efficienttam_ti.pt checkpoint..."
 #$CMD $efficienttam_ti_url || { echo "Failed to download checkpoint from $efficienttam_ti_url"; exit 1; }
 #
-#echo "Downloading efficienttam_ti_512x512.pt checkpoint..."
-#$CMD $efficienttam_ti_512x512_url || { echo "Failed to download checkpoint from $efficienttam_ti_512x512_url"; exit 1; }
-#
+echo "Downloading efficienttam_ti_512x512.pt checkpoint..."
+$CMD $efficienttam_ti_512x512_url || { echo "Failed to download checkpoint from $efficienttam_ti_512x512_url"; exit 1; }
+
 #echo "Downloading efficienttam_ti_1.pt checkpoint..."
 #$CMD $efficienttam_ti_1_url || { echo "Failed to download checkpoint from $efficienttam_ti_1_url"; exit 1; }
 #

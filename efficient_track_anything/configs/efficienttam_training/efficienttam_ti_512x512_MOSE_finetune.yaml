@@ -62,42 +62,48 @@ trainer:
   seed_value: 123  # 随机种子
 
   model:
-    _target_: training.model.sam2.SAM2Train  # 模型配置
+    _target_: training.model.efficienttam.ETAMTrain  # 模型配置
     image_encoder:
-      _target_: sam2.modeling.backbones.image_encoder.ImageEncoder
-      scalp: 1
+      _target_: efficient_track_anything.modeling.backbones.image_encoder.ImageEncoder
+      scalp: 0
       trunk:
-        _target_: sam2.modeling.backbones.hieradet.Hiera
-        embed_dim: 112  # 特征嵌入维度
-        num_heads: 2  # 注意力头数
-        drop_path_rate: 0.1
+        _target_: efficient_track_anything.modeling.backbones.vitdet.ViT
+        patch_size: 16
+        embed_dim: 192
+        depth: 12
+        num_heads: 3
+        mlp_ratio: 4.0
+        qkv_bias: true
+        drop_path_rate: 0.1  # 训练时0.1
+        use_rel_pos: false
+        window_size: 14
+        window_block_indexes: [ 0, 1, 3, 4, 6, 7, 9, 10 ]
       neck:
-        _target_: sam2.modeling.backbones.image_encoder.FpnNeck
+        _target_: efficient_track_anything.modeling.backbones.image_encoder.ViTDetNeck
         position_encoding:
-          _target_: sam2.modeling.position_encoding.PositionEmbeddingSine
+          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
           num_pos_feats: 256
           normalize: true
           scale: null
           temperature: 10000
         d_model: 256  # 维度
-        backbone_channel_list: [896, 448, 224, 112]  # 主干网络的不同通道数
-        fpn_top_down_levels: [2, 3]  # output level 0 and 1 directly use the backbone features
-        fpn_interp_model: nearest  # 最近邻插值
+        backbone_channel_list: [ 192, ]
+        neck_norm: LN
 
     memory_attention:
-      _target_: sam2.modeling.memory_attention.MemoryAttention
+      _target_: efficient_track_anything.modeling.memory_attention.MemoryAttention
       d_model: 256  # 维度
       pos_enc_at_input: true  # 是否使用位置编码
       layer:
-        _target_: sam2.modeling.memory_attention.MemoryAttentionLayer
+        _target_: efficient_track_anything.modeling.memory_attention.MemoryAttentionLayer
         activation: relu  # 激活函数
         dim_feedforward: 2048  # 前馈网络维度
         dropout: 0.1
         pos_enc_at_attn: false
         self_attention:
-          _target_: sam2.modeling.sam.transformer.RoPEAttention
+          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
           rope_theta: 10000.0  # 旋转位置编码参数
-          feat_sizes: [64, 64]
+          feat_sizes: [32, 32]
           embedding_dim: 256
           num_heads: 1  # 注意力头数
           downsample_rate: 1
@@ -106,9 +112,9 @@ trainer:
         pos_enc_at_cross_attn_keys: true
         pos_enc_at_cross_attn_queries: false
         cross_attention:
-          _target_: sam2.modeling.sam.transformer.RoPEAttention
+          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
           rope_theta: 10000.0  # 旋转位置编码参数
-          feat_sizes: [64, 64]
+          feat_sizes: [32, 32]
           rope_k_repeat: True  # 重复位置编码
           embedding_dim: 256
           num_heads: 1
@@ -118,23 +124,23 @@ trainer:
       num_layers: 4  # 记忆注意力的层数
 
     memory_encoder:
-        _target_: sam2.modeling.memory_encoder.MemoryEncoder
+        _target_: efficient_track_anything.modeling.memory_encoder.MemoryEncoder
         out_dim: 64  # 输出特征维度
         position_encoding:
-          _target_: sam2.modeling.position_encoding.PositionEmbeddingSine
+          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
           num_pos_feats: 64
           normalize: true
           scale: null
           temperature: 10000
         mask_downsampler:
-          _target_: sam2.modeling.memory_encoder.MaskDownSampler
+          _target_: efficient_track_anything.modeling.memory_encoder.MaskDownSampler
           kernel_size: 3
           stride: 2
           padding: 1
         fuser:
-          _target_: sam2.modeling.memory_encoder.Fuser
+          _target_: efficient_track_anything.modeling.memory_encoder.Fuser
           layer:
-            _target_: sam2.modeling.memory_encoder.CXBlock
+            _target_: efficient_track_anything.modeling.memory_encoder.CXBlock
             dim: 256
             kernel_size: 7
             padding: 3
@@ -154,11 +160,10 @@ trainer:
     # /
     # 记忆相关参数
     directly_add_no_mem_embed: true  # 直接添加无记忆嵌入
-    no_obj_embed_spatial: true  # 不对目标进行空间嵌入
     # use high-resolution feature map in the SAM mask decoder
     # /
     # 在 SAM 掩码解码器中使用高分辨率特征图
-    use_high_res_features_in_sam: true
+    use_high_res_features_in_sam: false
     # output 3 masks on the first click on initial conditioning frames
     # /
     # 在初始条件帧上的第一个点击输出 3 个掩码
@@ -169,9 +174,7 @@ trainer:
     # /
     # 在编码器中跨帧交叉关注来自其他帧的目标指针（基于 SAM 输出 token）
     use_obj_ptrs_in_encoder: true
-    add_tpos_enc_to_obj_ptrs: true  # 为目标指针添加时间位置编码
-    proj_tpos_enc_in_obj_ptrs: true  # 在目标指针中投影时间位置编码
-    use_signed_tpos_enc_to_obj_ptrs: true  # 在目标指针中使用带符号的时间位置编码
+    add_tpos_enc_to_obj_ptrs: false  # 为目标指针添加时间位置编码
     only_obj_ptrs_in_the_past_for_eval: true  # 仅在评估时使用过去帧中的目标指针
     # object occlusion prediction
     # /
@@ -188,7 +191,7 @@ trainer:
     multimask_max_pt_num: 1  # 多掩码最大点数
     use_mlp_for_obj_ptr_proj: true  # 使用 MLP 进行目标指针投影
     # Compilation flag / 编译相关参数
-    # compile_image_encoder: False  # 是否编译图像编码器
+    compile_image_encoder: true  # 是否编译图像编码器，此处efficienttam_ti_512×512推理时会编译
 
     ####### Training specific params / 训练特定参数 #######
     # box/point input and corrections
@@ -334,13 +337,13 @@ trainer:
 
       state_dict:  # 载入初始权重
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
-        checkpoint_path: ./checkpoints/sam2.1_hiera_base_plus.pt  # SAM 2.1 预训练权重路径
+        checkpoint_path: ./checkpoints/efficienttam_ti_512x512.pt  # ETAM 预训练权重路径
         ckpt_state_dict_keys: ['model']  # 只加载 `model` 权重
 
 launcher:  # 计算资源配置
   num_nodes: 1  # 计算节点数
-  gpus_per_node: 8  # 每个节点的 GPU 数量
-  experiment_log_dir: null  # 日志目录，默认存放在 ./sam2_logs/${config_name}
+  gpus_per_node: 1  # 每个节点的 GPU 数量
+  experiment_log_dir: null  # 日志目录，默认存放在 ./ETAM_logs/${config_name}
 
 # SLURM args if running on a cluster
 # /

@@ -138,7 +138,7 @@ def main(args) -> None:
     # 如果没有指定实验日志目录，则使用默认目录
     if cfg.launcher.experiment_log_dir is None:
         cfg.launcher.experiment_log_dir = os.path.join(
-            os.getcwd(), "sam2_logs", args.config
+            os.getcwd(), "ETAM_logs", args.config
         )
     print("###################### Train App Config ####################")
     print(OmegaConf.to_yaml(cfg))

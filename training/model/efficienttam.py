@@ -9,20 +9,20 @@ import logging
 import numpy as np
 import torch
 import torch.distributed
-from sam2.modeling.sam2_base import SAM2Base
-from sam2.modeling.sam2_utils import (
+from efficient_track_anything.modeling.efficienttam_base import EfficientTAMBase
+from efficient_track_anything.modeling.efficienttam_utils import (
     get_1d_sine_pe,
     get_next_point,
     sample_box_points,
     select_closest_cond_frames,
 )
 
-from sam2.utils.misc import concat_points
+from efficient_track_anything.utils.misc import concat_points
 
 from training.utils.data_utils import BatchedVideoDatapoint
 
 
-class SAM2Train(SAM2Base):
+class ETAMTrain(EfficientTAMBase):
     def __init__(
         self,
         image_encoder,  # 图像编码器
