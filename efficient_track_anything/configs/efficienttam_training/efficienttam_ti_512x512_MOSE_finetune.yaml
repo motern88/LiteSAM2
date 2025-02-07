@@ -13,9 +13,9 @@ scratch:
 
 dataset:
   # PATHS to Dataset
-  img_folder: null # 数据集 JPEGImages 目录路径（MOSE 数据集）
-  gt_folder: null  # 数据集标注文件目录路径（MOSE 数据集）
-  file_list_txt: training/assets/MOSE_sample_train_list.txt # 训练用的视频文件列表（可选）
+  img_folder: /root/autodl-tmp/MOSE/valid/JPEGImages # 数据集 JPEGImages 目录路径（MOSE 数据集） or null
+  gt_folder: /root/autodl-tmp/MOSE/valid/Annotations  # 数据集标注文件目录路径（MOSE 数据集） or null
+  file_list_txt: training/assets/MOSE_sample_val_list.txt # 训练用的视频文件列表（可选）
   multiplier: 2  # 数据增强的倍数
 
 # Video transforms
