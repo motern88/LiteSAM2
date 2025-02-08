@@ -9,13 +9,13 @@ scratch:
   base_lr: 5.0e-6
   vision_lr: 3.0e-06
   phases_per_epoch: 1
-  num_epochs: 40  # 40
+  num_epochs: 10  # 40
 
 dataset:
   # PATHS to Dataset
-  img_folder: /root/autodl-tmp/MOSE/valid/JPEGImages # 数据集 JPEGImages 目录路径（MOSE 数据集） or null
-  gt_folder: /root/autodl-tmp/MOSE/valid/Annotations  # 数据集标注文件目录路径（MOSE 数据集） or null
-  file_list_txt: training/assets/MOSE_sample_val_list.txt # 训练用的视频文件列表（可选）
+  img_folder: /root/autodl-tmp/MOSE/test/JPEGImages # 数据集 JPEGImages 目录路径（MOSE 数据集） or null
+  gt_folder: /root/autodl-tmp/MOSE/test/Annotations  # 数据集标注文件目录路径（MOSE 数据集） or null
+  file_list_txt: null # training/assets/MOSE_sample_val_list.txt # 训练用的视频文件列表（可选）
   multiplier: 2  # 数据增强的倍数
 
 # Video transforms
@@ -318,7 +318,7 @@ trainer:
   logging:  # 日志配置
     tensorboard_writer:
       _target_: training.utils.logger.make_tensorboard_logger  # TensorBoard 日志记录器
-      log_dir:  ${launcher.experiment_log_dir}/tensorboard  # TensorBoard 日志存储路径
+      log_dir:  /root/tf-logs # ${launcher.experiment_log_dir}/tensorboard  # TensorBoard 日志存储路径
       flush_secs: 120  # 120 秒刷新日志一次
       should_log: True  # 是否启用日志记录
     log_dir: ${launcher.experiment_log_dir}/logs  # 训练日志存储路径
@@ -343,7 +343,7 @@ trainer:
 launcher:  # 计算资源配置
   num_nodes: 1  # 计算节点数
   gpus_per_node: 1  # 每个节点的 GPU 数量
-  experiment_log_dir: null  # 日志目录，默认存放在 ./ETAM_logs/${config_name}
+  experiment_log_dir: /root/autodl-tmp/ETAM_logs  # 日志目录，默认存放在 ./ETAM_logs/${config_name}
 
 # SLURM args if running on a cluster
 # /

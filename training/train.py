@@ -270,7 +270,7 @@ def main(args) -> None:
 
 if __name__ == "__main__":
 
-    initialize_config_module("sam2", version_base="1.2")
+    initialize_config_module("efficient_track_anything", version_base="1.2")
     parser = ArgumentParser()
     parser.add_argument(
         "-c",
