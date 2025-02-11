@@ -55,10 +55,10 @@ class RandomUniformSampler(VOSSampler):
             if random.uniform(0, 1) < self.reverse_time_prob:
                 # 有一定概率翻转帧的顺序 / Reverse time
                 frames = frames[::-1]
-
             # 获取第一帧的对象ID / Get first frame object ids
             visible_object_ids = []
             loaded_segms = segment_loader.load(frames[0].frame_idx)
+
             if isinstance(loaded_segms, LazySegments):
                 # 如果是LazySegments（针对SA1BRawDataset），获取所有可见对象的ID / LazySegments for SA1BRawDataset
                 visible_object_ids = list(loaded_segms.keys())
@@ -69,7 +69,6 @@ class RandomUniformSampler(VOSSampler):
                 ).items():
                     if segment.sum():
                         visible_object_ids.append(object_id)
-
             # 如果第一帧没有可见的对象，重试 / First frame needs to have at least a target to track
             if len(visible_object_ids) > 0:
                 break

@@ -289,6 +289,8 @@ class JSONRawDataset(VOSRawDataset):
         """
         video_name = self.video_names[video_idx]
         video_json_path = os.path.join(self.gt_folder, video_name + "_manual.json")
+        # print("video_name: ", video_name)
+        # print("video_json_path: ", video_json_path)
         # 使用 JSON 格式的标注加载器
         segment_loader = JSONSegmentLoader(
             video_json_path=video_json_path,

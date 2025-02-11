@@ -447,7 +447,7 @@ class Trainer:
 
         # 打开并加载检查点文件
         with g_pathmgr.open(ckpt_path, "rb") as f:
-            checkpoint = torch.load(f, map_location="cpu")
+            checkpoint = torch.load(f, map_location="cpu", weights_only=True)
         # 加载模型的状态字典（模型的参数）
         load_state_dict_into_model(
             model=self.model,

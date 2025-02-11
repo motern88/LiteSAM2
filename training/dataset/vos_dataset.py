@@ -62,6 +62,7 @@ class VOSDataset(VisionDataset):
                 sampled_frms_and_objs = self.sampler.sample(
                     video, segment_loader, epoch=self.curr_epoch
                 )
+                # print(f"sampled_frms_and_objs: {sampled_frms_and_objs}")
                 break  # 成功加载视频 / Succesfully loaded video
             except Exception as e:
                 if self.training:

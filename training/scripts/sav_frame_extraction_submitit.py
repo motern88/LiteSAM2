@@ -126,7 +126,9 @@ if __name__ == "__main__":
 
     # 列出所有SA-V视频文件 / List all SA-V videos
     mp4_files = sorted([str(p) for p in Path(sav_vid_dir).glob("*/*.mp4")])
+    print(mp4_files)
     mp4_files = np.array(mp4_files)
+    print("视频数量",len(mp4_files))
     # 将视频文件分块，依据作业数量进行分割
     chunked_mp4_files = [x.tolist() for x in np.array_split(mp4_files, args.n_jobs)]
 
