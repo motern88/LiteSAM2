@@ -1,0 +1,375 @@
+# @package _global_
+
+distillation:  
+  enable: True  
+  teacher_checkpoint: ./checkpoints/efficienttam_ti_512x512.pt  
+  temperature: 3.0  
+  alpha: 0.7  # 蒸馏损失权重  
+  feature_layers: [4, 8, 12]  # 特征对齐层索引  
+
+student_model:  
+  type: EfficientTAM_Small  
+  input_size: 512  
+  pretrained: False  
+
+scratch:
+  resolution: 512  # 输入分辨率
+  train_batch_size: 1  # bs/gpu
+  num_train_workers: 10
+  num_frames: 8
+  max_num_objects: 3
+  base_lr: 5.0e-6
+  vision_lr: 3.0e-06
+  phases_per_epoch: 1
+  num_epochs: 10  # 40
+
+dataset:
+  # PATHS to Dataset
+  img_folder: /root/autodl-tmp/SA-V_dataset/sav_train/sav_frames  # 数据集 mp4 路径（SAV 数据集）
+  gt_folder: /root/autodl-tmp/SA-V_dataset/sav_train/sav_000  # 数据集 JSON 路径（SAV 数据集）
+  file_list_txt: null # training/assets/MOSE_sample_val_list.txt # 训练用的视频文件列表（可选）
+  multiplier: 2  # 数据增强的倍数
+
+# Video transforms
+vos:
+  train_transforms:  # 训练时数据增强
+    - _target_: training.dataset.transforms.ComposeAPI
+      transforms:
+        - _target_: training.dataset.transforms.RandomHorizontalFlip
+          consistent_transform: True  # 随机水平翻转（所有帧一致）
+        - _target_: training.dataset.transforms.RandomAffine
+          degrees: 25  # 旋转角度最大 25°
+          shear: 20  # 剪切变换最大 20°
+          image_interpolation: bilinear  # 使用双线性插值
+          consistent_transform: True
+        - _target_: training.dataset.transforms.RandomResizeAPI
+          sizes: ${scratch.resolution}  # 目标分辨率
+          square: true  # 是否调整为正方形
+          consistent_transform: True
+        - _target_: training.dataset.transforms.ColorJitter
+          consistent_transform: True  # 颜色抖动
+          brightness: 0.1
+          contrast: 0.03
+          saturation: 0.03
+          hue: null
+        - _target_: training.dataset.transforms.RandomGrayscale
+          p: 0.05  # 转换为灰度图概率
+          consistent_transform: True
+        - _target_: training.dataset.transforms.ColorJitter
+          consistent_transform: False  # 非一致颜色抖动
+          brightness: 0.1
+          contrast: 0.05
+          saturation: 0.05
+          hue: null
+        - _target_: training.dataset.transforms.ToTensorAPI  # 转换为 Tensor
+        - _target_: training.dataset.transforms.NormalizeAPI
+          mean: [0.485, 0.456, 0.406]  # 归一化均值
+          std: [0.229, 0.224, 0.225]  # 归一化标准差
+
+trainer:
+  _target_: training.distillation_trainer.StageAwareDistillationTrainer  # 替换为蒸馏训练器  
+  lr: 1e-4  
+  weight_decay: 0.05  
+  # _target_: training.trainer.Trainer  # 训练器类
+  mode: train_only  # 仅训练模式
+  max_epochs: ${times:${scratch.num_epochs},${scratch.phases_per_epoch}}  # 训练的总 epochs（num_epochs * phases_per_epoch计算得到）
+  accelerator: cuda  # 训练时使用 CUDA
+  seed_value: 123  # 随机种子
+
+  model:
+    _target_: training.model.efficienttam.ETAMTrain  # 模型配置
+    image_encoder:
+      _target_: efficient_track_anything.modeling.backbones.image_encoder.ImageEncoder
+      scalp: 0
+      trunk:
+        _target_: efficient_track_anything.modeling.backbones.vitdet.ViT
+        patch_size: 16
+        embed_dim: 192
+        depth: 12
+        num_heads: 3
+        mlp_ratio: 4.0
+        qkv_bias: true
+        drop_path_rate: 0.1  # 训练时0.1
+        use_rel_pos: false
+        window_size: 14
+        window_block_indexes: [ 0, 1, 3, 4, 6, 7, 9, 10 ]
+      neck:
+        _target_: efficient_track_anything.modeling.backbones.image_encoder.ViTDetNeck
+        position_encoding:
+          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
+          num_pos_feats: 256
+          normalize: true
+          scale: null
+          temperature: 10000
+        d_model: 256  # 维度
+        backbone_channel_list: [ 192, ]
+        neck_norm: LN
+
+    memory_attention:
+      _target_: efficient_track_anything.modeling.memory_attention.MemoryAttention
+      d_model: 256  # 维度
+      pos_enc_at_input: true  # 是否使用位置编码
+      layer:
+        _target_: efficient_track_anything.modeling.memory_attention.MemoryAttentionLayer
+        activation: relu  # 激活函数
+        dim_feedforward: 2048  # 前馈网络维度
+        dropout: 0.1
+        pos_enc_at_attn: false
+        self_attention:
+          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
+          rope_theta: 10000.0  # 旋转位置编码参数
+          feat_sizes: [32, 32]
+          embedding_dim: 256
+          num_heads: 1  # 注意力头数
+          downsample_rate: 1
+          dropout: 0.1
+        d_model: 256
+        pos_enc_at_cross_attn_keys: true
+        pos_enc_at_cross_attn_queries: false
+        cross_attention:
+          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
+          rope_theta: 10000.0  # 旋转位置编码参数
+          feat_sizes: [32, 32]
+          rope_k_repeat: True  # 重复位置编码
+          embedding_dim: 256
+          num_heads: 1
+          downsample_rate: 1
+          dropout: 0.1
+          kv_in_dim: 64  # KV 向量维度
+      num_layers: 4  # 记忆注意力的层数
+
+    memory_encoder:
+        _target_: efficient_track_anything.modeling.memory_encoder.MemoryEncoder
+        out_dim: 64  # 输出特征维度
+        position_encoding:
+          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
+          num_pos_feats: 64
+          normalize: true
+          scale: null
+          temperature: 10000
+        mask_downsampler:
+          _target_: efficient_track_anything.modeling.memory_encoder.MaskDownSampler
+          kernel_size: 3
+          stride: 2
+          padding: 1
+        fuser:
+          _target_: efficient_track_anything.modeling.memory_encoder.Fuser
+          layer:
+            _target_: efficient_track_anything.modeling.memory_encoder.CXBlock
+            dim: 256
+            kernel_size: 7
+            padding: 3
+            layer_scale_init_value: 1e-6
+            use_dwconv: True  # depth-wise convs / 使用深度可分离卷积
+          num_layers: 2
+
+    num_maskmem: 7  # 记忆编码器中的掩码存储单元数
+    image_size: ${scratch.resolution}
+    # apply scaled sigmoid on mask logits for memory encoder, and directly feed input mask as output mask
+    # /
+    # 在记忆编码器的掩码 logits 上应用缩放的 sigmoid，并直接将输入掩码作为输出掩码
+    sigmoid_scale_for_mem_enc: 20.0
+    sigmoid_bias_for_mem_enc: -10.0
+    use_mask_input_as_output_without_sam: true  # 在没有 SAM 处理的情况下，直接使用输入掩码作为输出掩码
+    # Memory
+    # /
+    # 记忆相关参数
+    directly_add_no_mem_embed: true  # 直接添加无记忆嵌入
+    # use high-resolution feature map in the SAM mask decoder
+    # /
+    # 在 SAM 掩码解码器中使用高分辨率特征图
+    use_high_res_features_in_sam: false
+    # output 3 masks on the first click on initial conditioning frames
+    # /
+    # 在初始条件帧上的第一个点击输出 3 个掩码
+    multimask_output_in_sam: true
+    # SAM heads
+    iou_prediction_use_sigmoid: True  # 交并比（IoU）预测使用 Sigmoid 函数
+    # cross-attend to object pointers from other frames (based on SAM output tokens) in the encoder
+    # /
+    # 在编码器中跨帧交叉关注来自其他帧的目标指针（基于 SAM 输出 token）
+    use_obj_ptrs_in_encoder: true
+    add_tpos_enc_to_obj_ptrs: false  # 为目标指针添加时间位置编码
+    only_obj_ptrs_in_the_past_for_eval: true  # 仅在评估时使用过去帧中的目标指针
+    # object occlusion prediction
+    # /
+    # 目标遮挡预测
+    pred_obj_scores: true  # 预测目标评分
+    pred_obj_scores_mlp: true  # 使用 MLP 预测目标评分
+    fixed_no_obj_ptr: true  # 目标指针数量固定
+    # multimask tracking settings
+    # /
+    # 多掩码跟踪设置
+    multimask_output_for_tracking: true  # 启用多掩码跟踪输出
+    use_multimask_token_for_obj_ptr: true  # 使用多掩码 token 作为目标指针
+    multimask_min_pt_num: 0  # 多掩码最小点数
+    multimask_max_pt_num: 1  # 多掩码最大点数
+    use_mlp_for_obj_ptr_proj: true  # 使用 MLP 进行目标指针投影
+    # Compilation flag / 编译相关参数
+    compile_image_encoder: true  # 是否编译图像编码器，此处efficienttam_ti_512×512推理时会编译
+
+    ####### Training specific params / 训练特定参数 #######
+    # box/point input and corrections
+    # /
+    # 框/点输入及修正相关参数
+    prob_to_use_pt_input_for_train: 0.5  # 训练时使用点输入的概率
+    prob_to_use_pt_input_for_eval: 0.0  # 评估时使用点输入的概率
+    prob_to_use_box_input_for_train: 0.5  # 训练时使用框输入的概率(0.5*0.5 = 0.25 的概率使用框而不是点)
+    prob_to_use_box_input_for_eval: 0.0  # 评估时使用框输入的概率
+    prob_to_sample_from_gt_for_train: 0.1  # 训练时以小概率从 GT 掩码中随机采样校正点，而非基于预测误差
+    num_frames_to_correct_for_train: 2  # 训练时迭代采样 1~2 帧进行校正（始终包括第一帧）
+    num_frames_to_correct_for_eval: 1  # 评估时仅在第一帧进行校正采样
+    rand_frames_to_correct_for_train: True  # 训练时随机选择需要校正的帧（从初始条件帧到 2 帧）
+    add_all_frames_to_correct_as_cond: True  # 当某帧收到校正点击时，该帧成为条件帧（即使它最初不是条件帧）
+    # maximum 2 initial conditioning frames / 最大2个初始条件帧
+    num_init_cond_frames_for_train: 2
+    rand_init_cond_frames_for_train: True  # 训练时随机 1~2 个初始条件帧
+    num_correction_pt_per_frame: 7  # 每帧的校正点数
+    use_act_ckpt_iterative_pt_sampling: false  # 是否在迭代点采样过程中使用激活检查点
+    
+
+    
+    num_init_cond_frames_for_eval: 1  # 评估时仅在第一帧应用掩码
+    forward_backbone_per_frame_for_eval: True  # 评估时每帧前向传播骨干网络
+    
+
+  data:
+    train:
+      _target_: training.dataset.sam2_datasets.TorchTrainMixedDataset  # 训练数据集的目标类
+      phases_per_epoch: ${scratch.phases_per_epoch}  # 每个 epoch 的训练阶段数
+      batch_sizes:
+        - ${scratch.train_batch_size}  # 训练批量大小
+
+      datasets:
+        - _target_: training.dataset.utils.RepeatFactorWrapper  # 数据集的重复因子包装器
+          dataset:
+            _target_: training.dataset.utils.ConcatDataset  # 合并多个数据集
+            datasets:
+            - _target_: training.dataset.vos_dataset.VOSDataset  # VOS 数据集
+              transforms: ${vos.train_transforms}  # 视频训练数据增强
+              training: true  # 训练模式
+              video_dataset:
+                _target_: training.dataset.vos_raw_dataset.JSONRawDataset  # SAV 数据集（JSON标注格式）
+                img_folder: ${dataset.img_folder}  # 图像文件夹路径
+                gt_folder: ${dataset.gt_folder}  # 真实标签文件夹路径
+                file_list_txt: ${dataset.file_list_txt}  # 文件列表路径
+              sampler:
+                _target_: training.dataset.vos_sampler.RandomUniformSampler  # 采样器，随机均匀采样视频帧
+                num_frames: ${scratch.num_frames}  # 采样的帧数
+                max_num_objects: ${scratch.max_num_objects}  # 每帧最大目标数
+              multiplier: ${dataset.multiplier}  # 采样权重倍数
+      shuffle: True  # 是否打乱数据顺序
+      num_workers: ${scratch.num_train_workers}  # 训练数据加载的并行进程数
+      pin_memory: True  # 是否使用固定内存加速数据加载
+      drop_last: True   # 是否丢弃最后一个不足 batch_size 的 batch
+      collate_fn:
+        _target_: training.utils.data_utils.collate_fn  # 数据整理函数
+        _partial_: true
+        dict_key: all
+
+  optim:  # 优化器相关参数
+    amp:
+      enabled: True  # 是否启用自动混合精度（AMP）
+      amp_dtype: bfloat16  # AMP 的数据类型（bfloat16）
+
+    optimizer:
+      _target_: torch.optim.AdamW  # 采用 AdamW 优化器
+
+    gradient_clip:
+      _target_: training.optimizer.GradientClipper  # 梯度裁剪
+      max_norm: 0.1  # 梯度最大范数
+      norm_type: 2  # 使用 L2 范数裁剪梯度
+
+    param_group_modifiers:  # 参数组调整策略
+      - _target_: training.optimizer.layer_decay_param_modifier  # 层衰减策略
+        _partial_: True
+        layer_decay_value: 0.9  # 层衰减因子
+        apply_to: 'image_encoder.trunk'  # 仅应用于图像编码器的主干网络
+        overrides:
+          - pattern: '*pos_embed*'  # 特殊参数：位置编码权重
+            value: 1.0  # 位置编码不衰减
+
+    options:
+      lr:  # 学习率调度
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.CosineParamScheduler  # 余弦退火调度
+            start_value: ${scratch.base_lr}  # 初始学习率
+            end_value: ${divide:${scratch.base_lr},10}  # 最终学习率降低至 1/10
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.CosineParamScheduler  # 图像编码器的学习率调度
+            start_value: ${scratch.vision_lr}
+            end_value: ${divide:${scratch.vision_lr},10}  # 仅应用于图像编码器
+          param_names:
+            - 'image_encoder.*'
+      weight_decay:  # 权重衰减（L2 正则化）
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler  # 常数权重衰减
+            value: 0.1  # 默认 0.1
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: 0.0  # 偏置参数和 LayerNorm 层不使用权重衰减
+          param_names:
+            - '*bias*'
+          module_cls_names: ['torch.nn.LayerNorm']
+
+  loss:  # 损失函数配置
+    all:
+      _target_: training.loss_fns.MultiStepMultiMasksAndIous  # 多步多掩码损失计算
+      weight_dict:  # 损失项的权重
+        loss_mask: 20  # 掩码损失的权重
+        loss_dice: 1  # Dice 损失的权重
+        loss_iou: 1  # IoU 损失的权重
+        loss_class: 1  # 类别损失的权重
+      supervise_all_iou: true  # 监督所有 IoU 计算
+      iou_use_l1_loss: true  # 使用 L1 损失计算 IoU
+      pred_obj_scores: true  # 预测目标分数
+      focal_gamma_obj_score: 0.0  # 目标分数的 Focal Loss gamma 值
+      focal_alpha_obj_score: -1.0  # 目标分数的 Focal Loss alpha 值
+
+  distributed:  # 分布式训练配置
+    backend: nccl  # 使用 NCCL 作为通信后端
+    find_unused_parameters: True  # 允许发现未使用的参数（适用于梯度计算优化）
+
+  logging:  # 日志配置
+    tensorboard_writer:
+      _target_: training.utils.logger.make_tensorboard_logger  # TensorBoard 日志记录器
+      log_dir:  /root/tf-logs # ${launcher.experiment_log_dir}/tensorboard  # TensorBoard 日志存储路径
+      flush_secs: 120  # 120 秒刷新日志一次
+      should_log: True  # 是否启用日志记录
+    log_dir: ${launcher.experiment_log_dir}/logs  # 训练日志存储路径
+    log_freq: 10  # 每 10 步记录一次日志
+
+  # initialize from a SAM 2 checkpoint
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints  # 检查点存放目录
+    save_freq: 0 # 0 only last checkpoint is saved / 0 仅保存最后一个检查点
+    model_weight_initializer:  # 模型权重初始化
+      _partial_: True
+      _target_: training.utils.checkpoint_utils.load_state_dict_into_model
+      strict: True  # 是否严格匹配权重
+      ignore_unexpected_keys: null  # 是否忽略未预期的键
+      ignore_missing_keys: null  # 是否忽略缺失的键
+
+      state_dict:  # 载入初始权重
+        _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
+        checkpoint_path: ./checkpoints/efficienttam_ti_512x512.pt  # ETAM 预训练权重路径
+        ckpt_state_dict_keys: ['model']  # 只加载 `model` 权重
+
+launcher:  # 计算资源配置
+  num_nodes: 1  # 计算节点数
+  gpus_per_node: 1  # 每个节点的 GPU 数量
+  experiment_log_dir: /root/autodl-tmp/ETAM_logs  # 日志目录，默认存放在 ./ETAM_logs/${config_name}
+
+# SLURM args if running on a cluster
+# /
+# 如果使用 SLURM 作业管理（集群运行）
+submitit:
+  partition: null  # 计算资源分区
+  account: null  # 账户名
+  qos: null  # 质量服务等级（QoS）
+  cpus_per_task: 10  # 每个任务的 CPU 核心数
+  use_cluster: false  # 是否使用集群（SLURM）
+  timeout_hour: 24  # 任务超时时间（小时）
+  name: null  # 作业名称
+  port_range: [10000, 65000]  # 端口范围
+
