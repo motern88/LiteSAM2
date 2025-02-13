@@ -123,7 +123,14 @@ def encode_RLE(mask):
     return:
         RLE编码后的掩码
     '''
-    return mask_utils.encode(np.asfortranarray(mask))[0]
+
+    encoded_mask = mask_utils.encode(np.asfortranarray(mask))
+    # {'size': [720, 1280], 'counts': b'Rnn91Zf07L4L4M2O1N101N10000000000O11O000O2O001N2N2N2M4Le_ca0'}
+
+    # 将 counts 转换为字符串类型
+    encoded_mask["counts"] = encoded_mask["counts"].decode("utf-8")
+
+    return encoded_mask
 
 def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
     '''
@@ -181,7 +188,7 @@ def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
     #### 构造 masklet和 masklet_id, masklet_size 的rel和abs ####
 
     # 创建masklet结构
-    masklet = [[] for _ in range(video_frame_count)]  # 每帧的对象掩码列表
+    masklet = [[] for _ in range(int(video_frame_count))]  # 每帧的对象掩码列表
 
     # 创建一个字典来映射每个label到唯一的掩码ID
     label_to_mask_id = {}  # dict{"label": int} 类别ID映射字典 # TODO：需要将其存入最终标注中，以便一些字段人工修正查看
@@ -210,7 +217,7 @@ def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
             mask_id = label_to_mask_id[label]
 
             # 创建一个空白掩码图像
-            mask = np.zeros((video_height, video_width), dtype=np.uint8)
+            mask = np.zeros((int(video_height), int(video_width)), dtype=np.uint8)
 
             # 填充掩码图像（根据多边形的点）
             points = points.astype(int)
@@ -219,6 +226,8 @@ def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
             # 计算该掩码的面积（即掩码中值为1的像素数量）
             mask_area = np.sum(mask)  # 计算掩码的面积，面积为掩码图像中像素值为1的数量
             # 将该掩码的面积加入到对应mask_id的面积总和中
+            if mask_id not in mask_area_sum:
+                mask_area_sum[mask_id] = []
             mask_area_sum[mask_id].append(mask_area) # mask_area_sum = dict{mask_id: list[mask_area, mask_area...]}
 
             # 对掩码进行RLE编码
@@ -227,7 +236,7 @@ def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
             # 构造当前mask的RLE的字典
             temp_mask = {
                 "mask_id": mask_id,
-                "size": [video_height, video_width],
+                "size": rle["size"],
                 "counts": rle["counts"]
             }
             temp_frame_masklet.append(temp_mask) # 将当前mask添加到当前帧的masklet临时列表中
@@ -295,13 +304,13 @@ def build_SAV_annotation(XAny_video_id, XAny_video_annotation):
 
             # 获取由label对应的value的值
             masklet_visibility_changes.append(
-                video_manual.get("masklet_visibility_changes", {}).get(label, 0)
+                next((item['value'] for item in video_manual.get("masklet_visibility_changes", []) if item['label'] == label), 0)
             )
             masklet_edited_frame_count.append(
-                video_manual.get("masklet_edited_frame_count", {}).get(label, 0)
+                next((item['value'] for item in video_manual.get("masklet_edited_frame_count", []) if item['label'] == label), 0)
             )
             masklet_first_appeared_frame.append(
-                video_manual.get("masklet_first_appeared_frame", {}).get(label, 0)
+                next((item['value'] for item in video_manual.get("masklet_first_appeared_frame", []) if item['label'] == label), 0)
             )
 
     # Optional[List[List[float]]]  每个 mask 的稳定性分数。仅自动注释。固定设置长度为masklet_num的”null“填充list
@@ -354,15 +363,17 @@ def convert_XAny_to_SAV(input_dir, output_dir):
         # 生成SAV_video_id, 例如从video001到sav_000001
         SAV_video_id = f"sav_{int(XAny_video_id.split('video')[1]):06d}"
 
-        # 将XAny_video_id.mp4复制为sav_train/vos_table/SAV_video_id.mp4
-        shutil.copy(
-            Path(input_dir, f"{XAny_video_id}.mp4"),
-            Path(output_dir, 'vos_table', f"{SAV_video_id}.mp4")
-        )
-
         # 将SAV_video_annotation写入sav_train/vos_table/sav_XXXXXX_manual.json
         with open(Path(output_dir, 'vos_table', f"{SAV_video_id}_manual.json"), 'w') as f:
             json.dump(SAV_video_annotation, f, indent=4)
+
+        # 如果SAV_video_id.mp4不存在，则将XAny_video_id.mp4复制为sav_train/vos_table/SAV_video_id.mp4
+        SAV_video_path = Path(output_dir, 'vos_table', f"{SAV_video_id}.mp4")
+        if not SAV_video_path.exists():
+            shutil.copy(
+                Path(input_dir, f"{XAny_video_id}.mp4"),
+                Path(SAV_video_path)
+            )
 
     print("X-AnyLabeling标注输出格式转换为SA-V数据集的格式完成！")
 

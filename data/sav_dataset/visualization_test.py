@@ -13,14 +13,14 @@ import pandas as pd
 from utils.sav_utils import SAVDataset
 
 # 初始化类，指定路径
-sav_dataset = SAVDataset(sav_dir="example/")
-frames, manual_annot, auto_annot = sav_dataset.get_frames_and_annotations("sav_000001")
+sav_dataset = SAVDataset(sav_dir="sav_train/vos_table/")  # "example/"
+frames, manual_annot, auto_annot = sav_dataset.get_frames_and_annotations("sav_000002")
 
 # 显示 SA-V 在第 annotated_frame_id 帧上的注释
 sav_dataset.visualize_annotation(
     frames, manual_annot, auto_annot,
     annotated_frame_id=0,  # 显示视频第n帧的可视化
-    show_auto=True,  # 是否显示自动标注
+    show_auto=False,  # 是否显示自动标注
     show_manual=True,  # 是否显示手动标注
 )
 

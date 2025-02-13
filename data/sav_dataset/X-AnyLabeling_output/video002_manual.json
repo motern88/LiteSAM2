@@ -1,0 +1,20 @@
+{
+    "masklet_visibility_changes": [
+        {"label": "white ball", "value": 0},
+        {"label": "black ball", "value": 0},
+        {"label": "brown ball", "value": 0},
+        {"label": "orange ball", "value": 0}
+    ],
+    "masklet_first_appeared_frame": [
+        {"label": "white ball", "value": 0.0},
+        {"label": "black ball", "value": 0.0},
+        {"label": "brown ball", "value": 0.0},
+        {"label": "orange ball", "value": 0.0}
+    ],
+    "masklet_edited_frame_count": [
+        {"label": "white ball", "value": 0},
+        {"label": "black ball", "value": 0},
+        {"label": "brown ball", "value": 0},
+        {"label": "orange ball", "value": 0}
+    ]
+}
