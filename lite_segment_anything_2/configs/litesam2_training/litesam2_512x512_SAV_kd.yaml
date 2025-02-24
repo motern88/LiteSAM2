@@ -311,7 +311,7 @@ trainer: # TODO:替换为蒸馏训练器
       focal_gamma_obj_score: 0.0  # 目标分数的 Focal Loss gamma 值
       focal_alpha_obj_score: -1.0  # 目标分数的 Focal Loss alpha 值
     soft_loss:  # TODO:替换为蒸馏所需的损失函数
-      _target_: training.loss_fns.KD_soft_Loss  # 知识蒸馏软损失函数
+      _target_: training.loss_fns.KnowledgeDistillationSoftLoss  # 知识蒸馏软损失函数
 
 
   distributed:  # 分布式训练配置

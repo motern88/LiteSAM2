@@ -15,7 +15,6 @@ import torch.distributed as dist
 import torch.nn as nn
 from hydra.utils import instantiate
 from iopath.common.file_io import g_pathmgr
-from torch.nn.functional import soft_margin_loss
 
 from training.optimizer import construct_optimizer
 
@@ -48,13 +47,8 @@ from training.utils.train_utils import (
     setup_distributed_backend,
 )
 
-from ALOHA项目备份.aloha.robomimic.robomimic.utils.torch_utils import soft_update
 
 CORE_LOSS_KEY = "core_loss"
-
-
-
-
 
 
 @dataclass
