@@ -145,57 +145,82 @@ def main(args) -> None:
     initialize_config_dir(config_dir=teacher_config_path, version_base="1.2")  
     teacher_cfg = compose(config_name=args.t_config) 
 
+
+    # 清除之前的 Hydra 实例  
     GlobalHydra.instance().clear() 
     # 初始化 Hydra 配置路径（student 配置路径）  
     student_config_path = os.path.join(project_root, "lite_segment_anything_2")  
     initialize_config_dir(config_dir=student_config_path, version_base="1.2")  
     student_cfg = compose(config_name=args.s_config)  
 
-    # 读取并解析配置文件
-    # cfg = compose(config_name=args.s_config)
+    # 清除之前的 Hydra 实例  
+    GlobalHydra.instance().clear() 
+    initialize_config_module("LiteSAM2", version_base="1.2")
+
+
     # 如果没有指定实验日志目录，则使用默认目录
     if student_cfg.launcher.experiment_log_dir is None:
         student_cfg.launcher.experiment_log_dir = os.path.join(
             os.getcwd(), "ETAM_logs", args.s_config
         )
     # 打印 teacher 和 student 的配置  
-    print("###################### Teacher Config ####################")  
-    print(OmegaConf.to_yaml(teacher_cfg))  
-    print("#########################################################")  
-    print("###################### Student Config ####################")  
-    print(OmegaConf.to_yaml(student_cfg))  
-    print("#########################################################")  
+    # print("###################### Teacher Config ####################")
+    # print(OmegaConf.to_yaml(teacher_cfg))
+    # print("#########################################################")
+    # print("###################### Student Config ####################")
+    # print(OmegaConf.to_yaml(student_cfg))
+    # print("#########################################################")
+
+    # 合并两个配置文件
+    # 1. 将 student model (trainer.model) 和teacher model配置提取出来
+    student_model_cfg = student_cfg.trainer.model if 'trainer' in student_cfg else OmegaConf.create()
+    teacher_model_cfg = teacher_cfg.model if 'model' in teacher_cfg else OmegaConf.create()
+    # 2. combined_cfg 为 student_cfg 去除 trainer.model 配置后的配置
+    combined_cfg_dict = OmegaConf.to_container(student_cfg, resolve=True)
+    combined_cfg_dict.pop('trainer.model', None)  # 移除 trainer 字段
+    # 3. 将教师和学生模型配置分别放入 combined_cfg
+    combined_cfg_dict['trainer'] = OmegaConf.create({
+        'teacher_model': teacher_model_cfg,
+        'student_model': student_model_cfg
+    })
+    # 4. 将字典转换回 OmegaConf 对象
+    combined_cfg = OmegaConf.create(combined_cfg_dict)
+    # 打印合并后的kd训练配置,可以看到这里的trainer字段下包含了teacher_model和student_model的配置
+    print("###################### Combined Config ####################")
+    print(OmegaConf.to_yaml(combined_cfg))
+    print("#########################################################")
+
 
     # 将PYTHONPATH添加到系统路径
     add_pythonpath_to_sys_path()
     # 创建实验日志目录
-    makedir(student_cfg.launcher.experiment_log_dir)
+    makedir(combined_cfg.launcher.experiment_log_dir)
     # 将配置保存到日志目录中的config.yaml文件
     with g_pathmgr.open(
-        os.path.join(student_cfg.launcher.experiment_log_dir, "config.yaml"), "w"
+        os.path.join(combined_cfg.launcher.experiment_log_dir, "config.yaml"), "w"
     ) as f:
-        f.write(OmegaConf.to_yaml(student_cfg))
+        f.write(OmegaConf.to_yaml(combined_cfg))
     # 解析配置文件并保存解析后的配置
-    cfg_resolved = OmegaConf.to_container(student_cfg, resolve=False)
+    cfg_resolved = OmegaConf.to_container(combined_cfg, resolve=False)
     cfg_resolved = OmegaConf.create(cfg_resolved)
 
     with g_pathmgr.open(
-        os.path.join(student_cfg.launcher.experiment_log_dir, "config_resolved.yaml"), "w"
+        os.path.join(combined_cfg.launcher.experiment_log_dir, "config_resolved.yaml"), "w"
     ) as f:
         f.write(OmegaConf.to_yaml(cfg_resolved, resolve=True))
 
     # 获取submitit配置，如果没有则抛出异常
-    submitit_conf = student_cfg.get("submitit", None)
+    submitit_conf = combined_cfg.get("submitit", None)
     assert submitit_conf is not None, "Missing submitit config"
 
-    submitit_dir = student_cfg.launcher.experiment_log_dir
+    submitit_dir = combined_cfg.launcher.experiment_log_dir
     submitit_dir = os.path.join(submitit_dir, "submitit_logs")
     # 优先使用命令行传入的参数 / Priotrize cmd line args
-    student_cfg.launcher.gpus_per_node = (
-        args.num_gpus if args.num_gpus is not None else student_cfg.launcher.gpus_per_node
+    combined_cfg.launcher.gpus_per_node = (
+        args.num_gpus if args.num_gpus is not None else combined_cfg.launcher.gpus_per_node
     )
-    student_cfg.launcher.num_nodes = (
-        args.num_nodes if args.num_nodes is not None else student_cfg.launcher.num_nodes
+    combined_cfg.launcher.num_nodes = (
+        args.num_nodes if args.num_nodes is not None else combined_cfg.launcher.num_nodes
     )
     submitit_conf.use_cluster = (
         args.use_cluster if args.use_cluster is not None else submitit_conf.use_cluster
@@ -222,10 +247,10 @@ def main(args) -> None:
                 submitit_conf.name if hasattr(submitit_conf, "name") else args.config
             ),
             "slurm_partition": submitit_conf.partition,  # 设置SLURM分区
-            "gpus_per_node": student_cfg.launcher.gpus_per_node,  # 每个节点的GPU数量
-            "tasks_per_node": student_cfg.launcher.gpus_per_node,  # 每个GPU分配一个任务 / one task per GPU
+            "gpus_per_node": combined_cfg.launcher.gpus_per_node,  # 每个节点的GPU数量
+            "tasks_per_node": combined_cfg.launcher.gpus_per_node,  # 每个GPU分配一个任务 / one task per GPU
             "cpus_per_task": submitit_conf.cpus_per_task,  # 每个任务分配的CPU数
-            "nodes": student_cfg.launcher.num_nodes,  # 节点数量
+            "nodes": combined_cfg.launcher.num_nodes,  # 节点数量
             "slurm_additional_parameters": {
                 "exclude": " ".join(submitit_conf.get("exclude_nodes", [])),  # 排除节点
             },
@@ -233,7 +258,7 @@ def main(args) -> None:
         # 设置包含节点的配置
         if "include_nodes" in submitit_conf:
             assert (
-                len(submitit_conf["include_nodes"]) >= student_cfg.launcher.num_nodes
+                len(submitit_conf["include_nodes"]) >= combined_cfg.launcher.num_nodes
             ), "Not enough nodes"
             job_kwargs["slurm_additional_parameters"]["nodelist"] = " ".join(
                 submitit_conf["include_nodes"]
@@ -277,17 +302,17 @@ def main(args) -> None:
             submitit_conf.port_range[0], submitit_conf.port_range[1]
         )
         # 创建SubmititRunner并提交作业
-        runner = SubmititRunner(main_port, student_cfg)
+        runner = SubmititRunner(main_port, combined_cfg)
         job = executor.submit(runner)
         print(f"Submitit Job ID: {job.job_id}")
         runner.setup_job_info(job.job_id, rank=0)
     else:
         # 如果不使用集群，单节点运行
-        student_cfg.launcher.num_nodes = 1
+        combined_cfg.launcher.num_nodes = 1
         main_port = random.randint(
             submitit_conf.port_range[0], submitit_conf.port_range[1]
         )
-        single_node_runner(student_cfg, main_port)
+        single_node_runner(combined_cfg, main_port)
 
 
 if __name__ == "__main__":
