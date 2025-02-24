@@ -7,15 +7,15 @@
 import torch
 import torch.distributed
 import torch.nn.functional as F
-from efficient_track_anything.modeling.efficienttam_utils import (
+from lite_segment_anything_2.modeling.litesam2_utils import (
     get_1d_sine_pe,
     MLP,
     select_closest_cond_frames,
 )
 
-from efficient_track_anything.modeling.sam.mask_decoder import MaskDecoder
-from efficient_track_anything.modeling.sam.prompt_encoder import PromptEncoder
-from efficient_track_anything.modeling.sam.transformer import TwoWayTransformer
+from lite_segment_anything_2.modeling.sam.mask_decoder import MaskDecoder
+from lite_segment_anything_2.modeling.sam.prompt_encoder import PromptEncoder
+from lite_segment_anything_2.modeling.sam.transformer import TwoWayTransformer
 
 from torch.nn.init import trunc_normal_
 
@@ -25,7 +25,7 @@ import time
 NO_OBJ_SCORE = -1024.0
 
 
-class EfficientTAMBase(torch.nn.Module):
+class LiteSAM2Base(torch.nn.Module):
     def __init__(
         self,
         image_encoder,

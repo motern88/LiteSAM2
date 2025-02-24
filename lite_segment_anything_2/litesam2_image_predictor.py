@@ -11,27 +11,27 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import torch
 
-from efficient_track_anything.modeling.efficienttam_base import EfficientTAMBase
+from lite_segment_anything_2.modeling.litesam2_base import LiteSAM2Base
 
-from efficient_track_anything.utils.transforms import EfficientTAMTransforms
+from lite_segment_anything_2.utils.transforms import LiteSAM2Transforms
 from PIL.Image import Image
 
 
-class EfficientTAMImagePredictor:
+class LiteSAM2ImagePredictor:
     def __init__(
         self,
-        efficienttam_model: EfficientTAMBase,
+        litesam2_model: LiteSAM2Base,
         mask_threshold=0.0,
         max_hole_area=0.0,
         max_sprinkle_area=0.0,
         **kwargs,
     ) -> None:
         """
-        Uses EfficientTAM to calculate the image embedding for an image, and then
+        Uses LiteSAM2 to calculate the image embedding for an image, and then
         allow repeated, efficient mask prediction given prompts.
 
         Arguments:
-          efficienttam_model (EfficientTAM): The model to use for mask prediction.
+          litesam2_model (LiteSAM2): The model to use for mask prediction.
           mask_threshold (float): The threshold to use when converting mask logits
             to binary masks. Masks are thresholded at 0 by default.
           max_hole_area (int): If max_hole_area > 0, we fill small holes in up to
@@ -40,8 +40,8 @@ class EfficientTAMImagePredictor:
             the maximum area of max_sprinkle_area in low_res_masks.
         """
         super().__init__()
-        self.model = efficienttam_model
-        self._transforms = EfficientTAMTransforms(
+        self.model = litesam2_model
+        self._transforms = LiteSAM2Transforms(
             resolution=self.model.image_size,
             mask_threshold=mask_threshold,
             max_hole_area=max_hole_area,
@@ -72,7 +72,7 @@ class EfficientTAMImagePredictor:
             ]
 
     @classmethod
-    def from_pretrained(cls, model_id: str, **kwargs) -> "EfficientTAMImagePredictor":
+    def from_pretrained(cls, model_id: str, **kwargs) -> "LiteSAM2ImagePredictor":
         """
         Load a pretrained model from the Hugging Face hub.
 
@@ -81,11 +81,11 @@ class EfficientTAMImagePredictor:
           **kwargs: Additional arguments to pass to the model constructor.
 
         Returns:
-          (EfficientTAMImagePredictor): The loaded model.
+          (LiteSAM2ImagePredictor): The loaded model.
         """
-        from efficient_track_anything.build_efficienttam import build_efficienttam_hf
+        from lite_segment_anything_2.build_litesam2 import build_litesam2_hf
 
-        tam_model = build_efficienttam_hf(model_id, **kwargs)
+        tam_model = build_litesam2_hf(model_id, **kwargs)
         return cls(tam_model, **kwargs)
 
     @torch.no_grad()
@@ -353,7 +353,7 @@ class EfficientTAMImagePredictor:
         """
         Predict masks for the given input prompts, using the currently set image.
         Input prompts are batched torch tensors and are expected to already be
-        transformed to the input frame using EfficientTAMTransforms.
+        transformed to the input frame using LiteSAM2Transforms.
 
         Arguments:
           point_coords (torch.Tensor or None): A BxNx2 array of point prompts to the

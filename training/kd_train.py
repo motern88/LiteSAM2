@@ -21,7 +21,6 @@ from iopath.common.file_io import g_pathmgr
 from omegaconf import OmegaConf
 
 from utils.train_utils import makedir, register_omegaconf_resolvers
-from efficient_track_anything.model_wrappers import TeacherWrapper
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
 
@@ -39,35 +38,8 @@ def single_proc_run(local_rank, main_port, cfg, world_size):
         logging.info(e)
 
     # 实例化并运行训练器
-    if cfg.distillation.enable:  
-        from efficient_track_anything.build_efficienttam import (  
-            build_efficienttam_video_predictor,  
-        )
-        # 加载教师模型
-        checkpoint = "./checkpoints/efficienttam_ti_512x512.pt"
-        model_cfg = "configs/efficienttam/efficienttam_ti_512x512.yaml"
-
-        teacher = build_efficienttam_video_predictor(model_cfg, checkpoint)
-
-        # 包装教师模型以捕获特征
-        teacher = TeacherWrapper(instantiate(cfg.model))
-        wrapped_teacher = TeacherWrapper(teacher)  
-        wrapped_teacher.eval()  # 固定所有参数  
-
-        # 初始化学生模型（从配置读取）  
-        student = instantiate(cfg.student_model)  
-
-         # 替换原有训练器初始化  
-        trainer = instantiate(  
-            cfg.trainer,  
-            teacher=wrapped_teacher,  
-            student=student  
-        )  
-        trainer.run()
-    else: 
-        # 原始训练流程
-        trainer = instantiate(cfg.trainer, _recursive_=False)
-        trainer.run()
+    trainer = instantiate(cfg.trainer, _recursive_=False)
+    trainer.run()
 
 
 def single_node_runner(cfg, main_port: int):
@@ -161,47 +133,69 @@ def add_pythonpath_to_sys_path():
 
 
 def main(args) -> None:
+    from hydra import initialize_config_dir,initialize, compose  
+    from hydra.core.global_hydra import GlobalHydra  
+    # 清除之前的 Hydra 实例  
+    GlobalHydra.instance().clear()  
+     # 获取项目根目录  
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  
+
+    # 初始化 Hydra 配置路径（teacher 配置路径）  
+    teacher_config_path = os.path.join(project_root, "efficient_track_anything")  
+    initialize_config_dir(config_dir=teacher_config_path, version_base="1.2")  
+    teacher_cfg = compose(config_name=args.t_config) 
+
+    GlobalHydra.instance().clear() 
+    # 初始化 Hydra 配置路径（student 配置路径）  
+    student_config_path = os.path.join(project_root, "lite_segment_anything_2")  
+    initialize_config_dir(config_dir=student_config_path, version_base="1.2")  
+    student_cfg = compose(config_name=args.s_config)  
+
     # 读取并解析配置文件
-    cfg = compose(config_name=args.config)
+    # cfg = compose(config_name=args.s_config)
     # 如果没有指定实验日志目录，则使用默认目录
-    if cfg.launcher.experiment_log_dir is None:
-        cfg.launcher.experiment_log_dir = os.path.join(
-            os.getcwd(), "ETAM_logs", args.config
+    if student_cfg.launcher.experiment_log_dir is None:
+        student_cfg.launcher.experiment_log_dir = os.path.join(
+            os.getcwd(), "ETAM_logs", args.s_config
         )
-    print("###################### Train App Config ####################")
-    print(OmegaConf.to_yaml(cfg))
-    print("############################################################")
+    # 打印 teacher 和 student 的配置  
+    print("###################### Teacher Config ####################")  
+    print(OmegaConf.to_yaml(teacher_cfg))  
+    print("#########################################################")  
+    print("###################### Student Config ####################")  
+    print(OmegaConf.to_yaml(student_cfg))  
+    print("#########################################################")  
 
     # 将PYTHONPATH添加到系统路径
     add_pythonpath_to_sys_path()
     # 创建实验日志目录
-    makedir(cfg.launcher.experiment_log_dir)
+    makedir(student_cfg.launcher.experiment_log_dir)
     # 将配置保存到日志目录中的config.yaml文件
     with g_pathmgr.open(
-        os.path.join(cfg.launcher.experiment_log_dir, "config.yaml"), "w"
+        os.path.join(student_cfg.launcher.experiment_log_dir, "config.yaml"), "w"
     ) as f:
-        f.write(OmegaConf.to_yaml(cfg))
+        f.write(OmegaConf.to_yaml(student_cfg))
     # 解析配置文件并保存解析后的配置
-    cfg_resolved = OmegaConf.to_container(cfg, resolve=False)
+    cfg_resolved = OmegaConf.to_container(student_cfg, resolve=False)
     cfg_resolved = OmegaConf.create(cfg_resolved)
 
     with g_pathmgr.open(
-        os.path.join(cfg.launcher.experiment_log_dir, "config_resolved.yaml"), "w"
+        os.path.join(student_cfg.launcher.experiment_log_dir, "config_resolved.yaml"), "w"
     ) as f:
         f.write(OmegaConf.to_yaml(cfg_resolved, resolve=True))
 
     # 获取submitit配置，如果没有则抛出异常
-    submitit_conf = cfg.get("submitit", None)
+    submitit_conf = student_cfg.get("submitit", None)
     assert submitit_conf is not None, "Missing submitit config"
 
-    submitit_dir = cfg.launcher.experiment_log_dir
+    submitit_dir = student_cfg.launcher.experiment_log_dir
     submitit_dir = os.path.join(submitit_dir, "submitit_logs")
     # 优先使用命令行传入的参数 / Priotrize cmd line args
-    cfg.launcher.gpus_per_node = (
-        args.num_gpus if args.num_gpus is not None else cfg.launcher.gpus_per_node
+    student_cfg.launcher.gpus_per_node = (
+        args.num_gpus if args.num_gpus is not None else student_cfg.launcher.gpus_per_node
     )
-    cfg.launcher.num_nodes = (
-        args.num_nodes if args.num_nodes is not None else cfg.launcher.num_nodes
+    student_cfg.launcher.num_nodes = (
+        args.num_nodes if args.num_nodes is not None else student_cfg.launcher.num_nodes
     )
     submitit_conf.use_cluster = (
         args.use_cluster if args.use_cluster is not None else submitit_conf.use_cluster
@@ -228,10 +222,10 @@ def main(args) -> None:
                 submitit_conf.name if hasattr(submitit_conf, "name") else args.config
             ),
             "slurm_partition": submitit_conf.partition,  # 设置SLURM分区
-            "gpus_per_node": cfg.launcher.gpus_per_node,  # 每个节点的GPU数量
-            "tasks_per_node": cfg.launcher.gpus_per_node,  # 每个GPU分配一个任务 / one task per GPU
+            "gpus_per_node": student_cfg.launcher.gpus_per_node,  # 每个节点的GPU数量
+            "tasks_per_node": student_cfg.launcher.gpus_per_node,  # 每个GPU分配一个任务 / one task per GPU
             "cpus_per_task": submitit_conf.cpus_per_task,  # 每个任务分配的CPU数
-            "nodes": cfg.launcher.num_nodes,  # 节点数量
+            "nodes": student_cfg.launcher.num_nodes,  # 节点数量
             "slurm_additional_parameters": {
                 "exclude": " ".join(submitit_conf.get("exclude_nodes", [])),  # 排除节点
             },
@@ -239,7 +233,7 @@ def main(args) -> None:
         # 设置包含节点的配置
         if "include_nodes" in submitit_conf:
             assert (
-                len(submitit_conf["include_nodes"]) >= cfg.launcher.num_nodes
+                len(submitit_conf["include_nodes"]) >= student_cfg.launcher.num_nodes
             ), "Not enough nodes"
             job_kwargs["slurm_additional_parameters"]["nodelist"] = " ".join(
                 submitit_conf["include_nodes"]
@@ -283,29 +277,37 @@ def main(args) -> None:
             submitit_conf.port_range[0], submitit_conf.port_range[1]
         )
         # 创建SubmititRunner并提交作业
-        runner = SubmititRunner(main_port, cfg)
+        runner = SubmititRunner(main_port, student_cfg)
         job = executor.submit(runner)
         print(f"Submitit Job ID: {job.job_id}")
         runner.setup_job_info(job.job_id, rank=0)
     else:
         # 如果不使用集群，单节点运行
-        cfg.launcher.num_nodes = 1
+        student_cfg.launcher.num_nodes = 1
         main_port = random.randint(
             submitit_conf.port_range[0], submitit_conf.port_range[1]
         )
-        single_node_runner(cfg, main_port)
+        single_node_runner(student_cfg, main_port)
 
 
 if __name__ == "__main__":
 
-    initialize_config_module("efficient_track_anything", version_base="1.2")
+    # initialize_config_module("efficient_track_anything", version_base="1.2")
+    initialize_config_module("LiteSAM2", version_base="1.2")
     parser = ArgumentParser()
     parser.add_argument(
-        "-c",
-        "--config",
+        "-tc",
+        "--t-config",
         required=True,
         type=str,
-        help="path to config file (e.g. configs/sam2.1_training/sam2.1_hiera_b+_MOSE_finetune.yaml)",
+        help="path to teacher config file (e.g. efficient_track_anything/configs/efficienttam/efficienttam_ti_512x512.yaml)",
+    )
+    parser.add_argument(
+        "-sc",
+        "--s-config",
+        required=True,
+        type=str,
+        help="path to student config file (e.g. lite_segment_anything_2/configs/litesam2_training/litesam2_512x512_SAV_kd.yaml)",
     )
     # 是否使用集群，0表示本地运行，1表示集群运行
     parser.add_argument(

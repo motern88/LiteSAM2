@@ -7,7 +7,7 @@
 import logging
 import os
 
-import efficient_track_anything
+import lite_segment_anything_2
 
 import torch
 from hydra import compose
@@ -15,53 +15,25 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 if os.path.isdir(
-    os.path.join(efficient_track_anything.__path__[0], "efficient_track_anything")
+    os.path.join(lite_segment_anything_2.__path__[0], "lite_segment_anything_2")
 ):
     raise RuntimeError(
-        "You're likely running Python from the parent directory of the EfficientTAM repository "
+        "You're likely running Python from the parent directory of the LiteSAM2 repository "
     )
 
 # Working on putting efficient track anything models on Facebook Hugging Face Hub.
 # This is just for demonstration.
 # Please download efficient track anything models from https://huggingface.co/yunyangx/efficient-track-anything.
-# and use build_efficienttam/build_efficienttam_video_predictor for loading them.
+# and use build_litesam2/build_litesam2_video_predictor for loading them.
 HF_MODEL_ID_TO_FILENAMES = {
-    "facebook/efficienttam_s": (
-        "configs/efficienttam/efficienttam_s.yaml",
-        "efficienttam_s.pt",
-    ),
-    "facebook/efficienttam_s_512x512": (
-        "configs/efficienttam/efficienttam_s_512x512.yaml",
-        "efficienttam_s_512x512.pt",
-    ),
-    "facebook/efficienttam_s_1": (
-        "configs/efficienttam/efficienttam_s_1.yaml",
-        "efficienttam_s_1.pt",
-    ),
-    "facebook/efficienttam_s_2": (
-        "configs/efficienttam/efficienttam_s_2.yaml",
-        "efficienttam_s_2.pt",
-    ),
-    "facebook/efficienttam_ti": (
-        "configs/efficienttam/efficienttam_ti.yaml",
-        "efficienttam_ti.pt",
-    ),
-    "facebook/efficienttam_ti_512x512": (
-        "configs/efficienttam/efficienttam_ti_512x512.yaml",
-        "efficienttam_ti_512x512.pt",
-    ),
-    "facebook/efficienttam_ti_1": (
-        "configs/efficienttam/efficienttam_ti_1.yaml",
-        "efficienttam_ti_1.pt",
-    ),
-    "facebook/efficienttam_ti_2": (
-        "configs/efficienttam/efficienttam_ti_2.yaml",
-        "efficienttam_ti_2.pt",
+    "ATA-space/litesam2": (
+        "configs/litesam2/litesam2_512x512.yaml",
+        "litesam2_512x512.pt",
     ),
 }
 
 
-def build_efficienttam(
+def build_litesam2(
     config_file,
     ckpt_path=None,
     device="cuda",
@@ -90,7 +62,7 @@ def build_efficienttam(
     return model
 
 
-def build_efficienttam_video_predictor(
+def build_litesam2_video_predictor(
     config_file,
     ckpt_path=None,
     device="cuda",
@@ -107,12 +79,12 @@ def build_efficienttam_video_predictor(
         vos_optimized = False
 
     hydra_overrides = [
-        "++model._target_=efficient_track_anything.efficienttam_video_predictor.EfficientTAMVideoPredictor",
+        "++model._target_=lite_segment_anything_2.litesam2_video_predictor.LiteSAM2VideoPredictor",
     ]
     if vos_optimized:
         hydra_overrides = [
-            "++model._target_=efficient_track_anything.efficienttam_video_predictor.EfficientTAMVideoPredictorVOS",
-            "++model.compile_image_encoder=True",  # Let efficienttam_base handle this / 让 EfficientTAM 基础模块处理编译
+            "++model._target_=lite_segment_anything_2.litesam2_video_predictor.LiteSAM2VideoPredictorVOS",
+            "++model.compile_image_encoder=True",  # Let litesam2_base handle this / 让 LiteSAM2 基础模块处理编译
         ]
 
     if apply_postprocessing:
@@ -155,14 +127,14 @@ def _hf_download(model_id):
     return config_name, ckpt_path
 
 
-def build_efficienttam_hf(model_id, **kwargs):
+def build_litesam2_hf(model_id, **kwargs):
     config_name, ckpt_path = _hf_download(model_id)
-    return build_efficienttam(config_file=config_name, ckpt_path=ckpt_path, **kwargs)
+    return build_litesam2(config_file=config_name, ckpt_path=ckpt_path, **kwargs)
 
 
-def build_efficienttam_video_predictor_hf(model_id, **kwargs):
+def build_litesam2_video_predictor_hf(model_id, **kwargs):
     config_name, ckpt_path = _hf_download(model_id)
-    return build_efficienttam_video_predictor(
+    return build_litesam2_video_predictor(
         config_file=config_name, ckpt_path=ckpt_path, **kwargs
     )
 

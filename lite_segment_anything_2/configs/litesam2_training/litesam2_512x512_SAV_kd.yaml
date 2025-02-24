@@ -1,17 +1,5 @@
 # @package _global_
 
-distillation:  
-  enable: True  
-  teacher_checkpoint: ./checkpoints/efficienttam_ti_512x512.pt  
-  temperature: 3.0  
-  alpha: 0.7  # 蒸馏损失权重  
-  feature_layers: [4, 8, 12]  # 特征对齐层索引  
-
-student_model:  
-  type: EfficientTAM_Small  
-  input_size: 512  
-  pretrained: False  
-
 scratch:
   resolution: 512  # 输入分辨率
   train_batch_size: 1  # bs/gpu
@@ -66,102 +54,99 @@ vos:
           mean: [0.485, 0.456, 0.406]  # 归一化均值
           std: [0.229, 0.224, 0.225]  # 归一化标准差
 
-trainer:
-  _target_: training.distillation_trainer.StageAwareDistillationTrainer  # 替换为蒸馏训练器  
-  lr: 1e-4  
-  weight_decay: 0.05  
-  # _target_: training.trainer.Trainer  # 训练器类
+trainer: # TODO:替换为蒸馏训练器
+  _target_: training.kd_trainer.KnowledgeDistillationTrainer  # 知识蒸馏训练器类
   mode: train_only  # 仅训练模式
   max_epochs: ${times:${scratch.num_epochs},${scratch.phases_per_epoch}}  # 训练的总 epochs（num_epochs * phases_per_epoch计算得到）
   accelerator: cuda  # 训练时使用 CUDA
   seed_value: 123  # 随机种子
 
   model:
-    _target_: training.model.efficienttam.ETAMTrain  # 模型配置
+    _target_: lite_segment_anything_2.modeling.litesam2_base.LiteSAM2Base
     image_encoder:
-      _target_: efficient_track_anything.modeling.backbones.image_encoder.ImageEncoder
+      _target_: lite_segment_anything_2.modeling.backbones.image_encoder.ImageEncoder
       scalp: 0
       trunk:
-        _target_: efficient_track_anything.modeling.backbones.vitdet.ViT
+        _target_: lite_segment_anything_2.modeling.backbones.vitdet.ViT
         patch_size: 16
         embed_dim: 192
         depth: 12
         num_heads: 3
         mlp_ratio: 4.0
         qkv_bias: true
-        drop_path_rate: 0.1  # 训练时0.1
+        drop_path_rate: 0.0
         use_rel_pos: false
         window_size: 14
         window_block_indexes: [ 0, 1, 3, 4, 6, 7, 9, 10 ]
       neck:
-        _target_: efficient_track_anything.modeling.backbones.image_encoder.ViTDetNeck
+        _target_: lite_segment_anything_2.modeling.backbones.image_encoder.ViTDetNeck
         position_encoding:
-          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
+          _target_: lite_segment_anything_2.modeling.position_encoding.PositionEmbeddingSine
           num_pos_feats: 256
           normalize: true
           scale: null
           temperature: 10000
-        d_model: 256  # 维度
+        d_model: 256
         backbone_channel_list: [ 192, ]
         neck_norm: LN
 
     memory_attention:
-      _target_: efficient_track_anything.modeling.memory_attention.MemoryAttention
-      d_model: 256  # 维度
-      pos_enc_at_input: true  # 是否使用位置编码
+      _target_: lite_segment_anything_2.modeling.memory_attention.MemoryAttention
+      d_model: 256
+      pos_enc_at_input: true
       layer:
-        _target_: efficient_track_anything.modeling.memory_attention.MemoryAttentionLayer
-        activation: relu  # 激活函数
-        dim_feedforward: 2048  # 前馈网络维度
+        _target_: lite_segment_anything_2.modeling.memory_attention.MemoryAttentionLayer
+        activation: relu
+        dim_feedforward: 2048
         dropout: 0.1
         pos_enc_at_attn: false
         self_attention:
-          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
-          rope_theta: 10000.0  # 旋转位置编码参数
-          feat_sizes: [32, 32]
+          _target_: lite_segment_anything_2.modeling.sam.transformer.RoPEAttention
+          rope_theta: 10000.0
+          feat_sizes: [ 32, 32 ]
           embedding_dim: 256
-          num_heads: 1  # 注意力头数
+          num_heads: 1
           downsample_rate: 1
           dropout: 0.1
         d_model: 256
         pos_enc_at_cross_attn_keys: true
         pos_enc_at_cross_attn_queries: false
         cross_attention:
-          _target_: efficient_track_anything.modeling.sam.transformer.RoPEAttention
-          rope_theta: 10000.0  # 旋转位置编码参数
-          feat_sizes: [32, 32]
-          rope_k_repeat: True  # 重复位置编码
+          _target_: lite_segment_anything_2.modeling.sam.transformer.RoPEAttention
+          rope_theta: 10000.0
+          feat_sizes: [ 32, 32 ]
+          rope_k_repeat: True
           embedding_dim: 256
           num_heads: 1
           downsample_rate: 1
           dropout: 0.1
-          kv_in_dim: 64  # KV 向量维度
-      num_layers: 4  # 记忆注意力的层数
+          kv_in_dim: 64
+      num_layers: 4
 
     memory_encoder:
-        _target_: efficient_track_anything.modeling.memory_encoder.MemoryEncoder
-        out_dim: 64  # 输出特征维度
-        position_encoding:
-          _target_: efficient_track_anything.modeling.position_encoding.PositionEmbeddingSine
-          num_pos_feats: 64
-          normalize: true
-          scale: null
-          temperature: 10000
-        mask_downsampler:
-          _target_: efficient_track_anything.modeling.memory_encoder.MaskDownSampler
-          kernel_size: 3
-          stride: 2
-          padding: 1
-        fuser:
-          _target_: efficient_track_anything.modeling.memory_encoder.Fuser
-          layer:
-            _target_: efficient_track_anything.modeling.memory_encoder.CXBlock
-            dim: 256
-            kernel_size: 7
-            padding: 3
-            layer_scale_init_value: 1e-6
-            use_dwconv: True  # depth-wise convs / 使用深度可分离卷积
-          num_layers: 2
+      _target_: lite_segment_anything_2.modeling.memory_encoder.MemoryEncoder
+      out_dim: 64
+      position_encoding:
+        _target_: lite_segment_anything_2.modeling.position_encoding.PositionEmbeddingSine
+        num_pos_feats: 64
+        normalize: true
+        scale: null
+        temperature: 10000
+      mask_downsampler:
+        _target_: lite_segment_anything_2.modeling.memory_encoder.MaskDownSampler
+        kernel_size: 3
+        stride: 2
+        padding: 1
+      fuser:
+        _target_: lite_segment_anything_2.modeling.memory_encoder.Fuser
+        layer:
+          _target_: lite_segment_anything_2.modeling.memory_encoder.CXBlock
+          dim: 256
+          kernel_size: 7
+          padding: 3
+          layer_scale_init_value: 1e-6
+          use_dwconv: True  # depth-wise convs
+        num_layers: 2
 
     num_maskmem: 7  # 记忆编码器中的掩码存储单元数
     image_size: ${scratch.resolution}
@@ -312,8 +297,8 @@ trainer:
             - '*bias*'
           module_cls_names: ['torch.nn.LayerNorm']
 
-  loss:  # 损失函数配置
-    all:
+  loss:
+    hard_loss:
       _target_: training.loss_fns.MultiStepMultiMasksAndIous  # 多步多掩码损失计算
       weight_dict:  # 损失项的权重
         loss_mask: 20  # 掩码损失的权重
@@ -325,6 +310,9 @@ trainer:
       pred_obj_scores: true  # 预测目标分数
       focal_gamma_obj_score: 0.0  # 目标分数的 Focal Loss gamma 值
       focal_alpha_obj_score: -1.0  # 目标分数的 Focal Loss alpha 值
+    soft_loss:  # TODO:替换为蒸馏所需的损失函数
+      _target_: training.loss_fns.KD_soft_Loss  # 知识蒸馏软损失函数
+
 
   distributed:  # 分布式训练配置
     backend: nccl  # 使用 NCCL 作为通信后端

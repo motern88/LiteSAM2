@@ -10,11 +10,11 @@ from collections import OrderedDict
 import torch
 import torch.nn.functional as F
 
-from efficient_track_anything.modeling.efficienttam_base import (
-    EfficientTAMBase,
+from lite_segment_anything_2.modeling.litesam2_base import (
+    LiteSAM2Base,
     NO_OBJ_SCORE,
 )
-from efficient_track_anything.utils.misc import (
+from lite_segment_anything_2.utils.misc import (
     concat_points,
     fill_holes_in_mask_scores,
     load_video_frames,
@@ -25,7 +25,7 @@ from tqdm import tqdm
 import time
 
 
-class EfficientTAMVideoPredictor(EfficientTAMBase):
+class LiteSAM2VideoPredictor(LiteSAM2Base):
     """The predictor class to handle user interactions and manage inference states."""
 
     def __init__(
@@ -108,7 +108,7 @@ class EfficientTAMVideoPredictor(EfficientTAMBase):
         return inference_state
 
     @classmethod
-    def from_pretrained(cls, model_id: str, **kwargs) -> "EfficientTAMVideoPredictor":
+    def from_pretrained(cls, model_id: str, **kwargs) -> "LiteSAM2VideoPredictor":
         """
         Load a pretrained model from the Hugging Face hub.
 
@@ -119,12 +119,12 @@ class EfficientTAMVideoPredictor(EfficientTAMBase):
         Returns:
           (EfficientTAMVideoPredictor): The loaded model.
         """
-        from efficient_track_anything.build_efficienttam import (
-            build_efficienttam_video_predictor_hf,
+        from lite_segment_anything_2.build_litesam2 import (
+            build_litesam2_video_predictor_hf,
         )
 
-        efficienttam_model = build_efficienttam_video_predictor_hf(model_id, **kwargs)
-        return efficienttam_model
+        litesam2_model = build_litesam2_video_predictor_hf(model_id, **kwargs)
+        return litesam2_model
 
     def _obj_id_to_idx(self, inference_state, obj_id):
         """Map client-side object id to model-side object index."""
