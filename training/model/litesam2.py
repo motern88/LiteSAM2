@@ -9,20 +9,19 @@ import logging
 import numpy as np
 import torch
 import torch.distributed
-from efficient_track_anything.modeling.efficienttam_base import EfficientTAMBase
-from efficient_track_anything.modeling.efficienttam_utils import (
+from lite_segment_anything_2.modeling.litesam2_base import LiteSAM2Base
+from lite_segment_anything_2.modeling.litesam2_utils import (
     get_1d_sine_pe,
     get_next_point,
     sample_box_points,
     select_closest_cond_frames,
 )
 
-from efficient_track_anything.utils.misc import concat_points
+from lite_segment_anything_2.utils.misc import concat_points
 
 from training.utils.data_utils import BatchedVideoDatapoint
 
-
-class ETAMTrain(EfficientTAMBase):
+class LiteSAM2Train(LiteSAM2Base):
     def __init__(
         self,
         image_encoder,  # 图像编码器
@@ -181,8 +180,7 @@ class ETAMTrain(EfficientTAMBase):
         """
         # Load the ground-truth masks on all frames (so that we can later
         # sample correction points from them)
-        # /
-        # 1. 加载所有帧的GT掩膜（以便稍后从中采样修正点）
+        # 加载所有帧的地面真值掩膜（以便稍后从中采样修正点）
 
         # gt_masks_per_frame = {
         #     stage_id: targets.segments.unsqueeze(1)  # [B, 1, H_im, W_im]
@@ -198,7 +196,7 @@ class ETAMTrain(EfficientTAMBase):
         backbone_out["num_frames"] = num_frames
 
         # Randomly decide whether to use point inputs or mask inputs
-        # 2. 随机决定是否使用点输入或掩膜输入
+        # 随机决定是否使用点输入或掩膜输入
         if self.training:
             prob_to_use_pt_input = self.prob_to_use_pt_input_for_train
             prob_to_use_box_input = self.prob_to_use_box_input_for_train
@@ -213,8 +211,6 @@ class ETAMTrain(EfficientTAMBase):
             rand_frames_to_correct = self.rand_frames_to_correct_for_eval
             num_init_cond_frames = self.num_init_cond_frames_for_eval
             rand_init_cond_frames = self.rand_init_cond_frames_for_eval
-
-        # 3. 特殊处理单帧视频的情况
         if num_frames == 1:
             # here we handle a special case for mixing video + SAM on image training,
             # where we force using point input for the SAM task on static images
@@ -223,24 +219,16 @@ class ETAMTrain(EfficientTAMBase):
             prob_to_use_pt_input = 1.0
             num_frames_to_correct = 1
             num_init_cond_frames = 1
-
-        # 4. 随机选择是否使用点输入
         assert num_init_cond_frames >= 1
         # (here `self.rng.random()` returns value in range 0.0 <= X < 1.0)
-        # /
         # (这里 `self.rng.random()` 返回一个范围为 0.0 <= X < 1.0 的值)
         use_pt_input = self.rng.random() < prob_to_use_pt_input
-
-        # 5. 随机选择初始条件帧
         if rand_init_cond_frames and num_init_cond_frames > 1:
             # randomly select 1 to `num_init_cond_frames` frames as initial conditioning frames
-            # /
             # 随机选择 1 到 `num_init_cond_frames` 帧作为初始条件帧
             num_init_cond_frames = self.rng.integers(
                 1, num_init_cond_frames, endpoint=True
             )
-
-        # 6. 随机选择纠正条件帧
         if (
             use_pt_input
             and rand_frames_to_correct
@@ -255,7 +243,6 @@ class ETAMTrain(EfficientTAMBase):
             )
         backbone_out["use_pt_input"] = use_pt_input
 
-        # 7. 对初始条件帧采样提示
         # 采样初始条件帧 / Sample initial conditioning frames
         if num_init_cond_frames == 1:
             init_cond_frames = [start_frame_idx]  # 起始帧 / starting frame
@@ -267,38 +254,27 @@ class ETAMTrain(EfficientTAMBase):
                 num_init_cond_frames - 1,
                 replace=False,
             ).tolist()
-
-        # init_cond_frames为选出的初始条件帧
         backbone_out["init_cond_frames"] = init_cond_frames
-        # frames_not_in_init_cond包含所有不在初始条件帧（init_cond_frames）中的帧索引
         backbone_out["frames_not_in_init_cond"] = [
             t for t in range(start_frame_idx, num_frames) if t not in init_cond_frames
         ]
-
         # 在初始条件帧上准备掩膜或点输入 / Prepare mask or point inputs on initial conditioning frames
         backbone_out["mask_inputs_per_frame"] = {}  # {frame_idx: <input_masks>}
         backbone_out["point_inputs_per_frame"] = {}  # {frame_idx: <input_points>}
-        # 遍历所有选定的初始条件帧
         for t in init_cond_frames:
-            # 如果不使用prompt输入则将该帧的真实掩码作为输入存在字典中
             if not use_pt_input:
                 backbone_out["mask_inputs_per_frame"][t] = gt_masks_per_frame[t]
-            # 如果使用prompt输入
             else:
-
                 # During training # P(box) = prob_to_use_pt_input * prob_to_use_box_input
+                # 在训练时 # P(box) = prob_to_use_pt_input * prob_to_use_box_input
                 use_box_input = self.rng.random() < prob_to_use_box_input
-
-                # 则首先根据 prob_to_use_box_input 的概率决定是否使用框提示输入（use_box_input）
                 if use_box_input:
                     points, labels = sample_box_points(
                         gt_masks_per_frame[t],
                     )
-                # 如果使用点提示输入
                 else:
                     # (here we only sample **one initial point** on initial conditioning frames from the
                     # ground-truth mask; we may sample more correction points on the fly)
-                    # /
                     # （这里我们仅在初始条件帧上从地面真值掩膜中采样 **一个初始点**；我们可能会在运行时采样更多修正点）
                     points, labels = get_next_point(
                         gt_masks=gt_masks_per_frame[t],
@@ -311,11 +287,10 @@ class ETAMTrain(EfficientTAMBase):
                 point_inputs = {"point_coords": points, "point_labels": labels}
                 backbone_out["point_inputs_per_frame"][t] = point_inputs
 
-        # 8. 对仍然需要添加纠正点击的帧采样提示
         # Sample frames where we will add correction clicks on the fly
         # based on the error between prediction and ground-truth masks
-        # /
-        # 采样在运行时我们将要添加修正点击的帧，基于预测与地面真值掩膜之间的误差
+        # 采样在运行时我们将要添加修正点击的帧
+        # 基于预测与地面真值掩膜之间的误差
         if not use_pt_input:
             # 在使用掩膜输入时不会采样修正点 / no correction points will be sampled when using mask inputs
             frames_to_add_correction_pt = []
@@ -347,13 +322,12 @@ class ETAMTrain(EfficientTAMBase):
         if img_feats_already_computed:
             # Prepare the backbone features
             # - vision_feats and vision_pos_embeds are in (HW)BC format
-            # /
             # 如果图像特征已经计算，则准备骨干特征
             # - vision_feats 和 vision_pos_embeds 的格式为 (HW)BC
             (
                 _,
-                vision_feats,  # HWxNxC
-                vision_pos_embeds,  # HWxNxC
+                vision_feats,
+                vision_pos_embeds,
                 feat_sizes,
             ) = self._prepare_backbone_features(backbone_out)
 
@@ -361,10 +335,8 @@ class ETAMTrain(EfficientTAMBase):
         num_frames = backbone_out["num_frames"]
         init_cond_frames = backbone_out["init_cond_frames"]
         frames_to_add_correction_pt = backbone_out["frames_to_add_correction_pt"]
-
         # first process all the initial conditioning frames to encode them as memory,
         # and then conditioning on them to track the remaining frames
-        # /
         # 首先处理所有的初始条件帧，将它们编码为记忆，
         # 然后以这些记忆为条件，跟踪剩余的帧
         processing_order = init_cond_frames + backbone_out["frames_not_in_init_cond"]
@@ -372,11 +344,10 @@ class ETAMTrain(EfficientTAMBase):
             "cond_frame_outputs": {},  # dict containing {frame_idx: <out>}
             "non_cond_frame_outputs": {},  # dict containing {frame_idx: <out>}
         }
-        # 遍历处理序列的帧
         for stage_id in processing_order:
-            # 获取当前帧的图像特征 / Get the image features for the current frames
+            # # 获取当前帧的图像特征 / Get the image features for the current frames
             # img_ids = input.find_inputs[stage_id].img_ids
-            img_ids = input.flat_obj_to_img_idx[stage_id]  # 获取当前帧的图像索引
+            img_ids = input.flat_obj_to_img_idx[stage_id]
             if img_feats_already_computed:
                 # Retrieve image features according to img_ids (if they are already computed).
                 # 如果图像特征已经计算，则根据 img_ids 获取图像特征
@@ -411,7 +382,6 @@ class ETAMTrain(EfficientTAMBase):
                 output_dict=output_dict,
                 num_frames=num_frames,
             )
-
             # Append the output, depending on whether it's a conditioning frame
             # 根据是否是条件帧，决定是否将输出添加到条件帧输出中
             add_output_as_cond_frame = stage_id in init_cond_frames or (
@@ -431,7 +401,6 @@ class ETAMTrain(EfficientTAMBase):
         all_frame_outputs.update(output_dict["cond_frame_outputs"])
         all_frame_outputs.update(output_dict["non_cond_frame_outputs"])
         all_frame_outputs = [all_frame_outputs[t] for t in range(num_frames)]
-
         # Make DDP happy with activation checkpointing by removing unused keys
         # 使 DDP 在激活检查点时不报错，去除未使用的键
         all_frame_outputs = [

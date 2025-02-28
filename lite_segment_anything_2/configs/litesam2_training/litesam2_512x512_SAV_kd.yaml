@@ -62,7 +62,7 @@ trainer: # TODO:替换为蒸馏训练器
   seed_value: 123  # 随机种子
 
   model:
-    _target_: lite_segment_anything_2.modeling.litesam2_base.LiteSAM2Base
+    _target_: training.model.litesam2.LiteSAM2Train  # LiteSAM2Train 类
     image_encoder:
       _target_: lite_segment_anything_2.modeling.backbones.image_encoder.ImageEncoder
       scalp: 0
@@ -312,6 +312,8 @@ trainer: # TODO:替换为蒸馏训练器
       focal_alpha_obj_score: -1.0  # 目标分数的 Focal Loss alpha 值
     soft_loss:  # TODO:替换为蒸馏所需的损失函数
       _target_: training.loss_fns.KnowledgeDistillationSoftLoss  # 知识蒸馏软损失函数
+      temperature: 1.0  # 温度参数
+      kd_modules: ["image_encoder"]  # 需要蒸馏的模块
 
 
   distributed:  # 分布式训练配置

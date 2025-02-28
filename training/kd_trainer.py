@@ -483,8 +483,8 @@ class KnowledgeDistillationTrainer:
         phase: str,  # 当前阶段（如训练或验证）
     ):
         # 模型的前向传播
-        teacher_outputs = teacher_model(batch)  # 教师模型的输出  TODO:输出需要计算soft_loss的中间结果
-        student_outputs = student_model(batch)  # 学生模型的输出  TODO:输出需要计算soft_loss的中间结果
+        teacher_outputs, teacher_backbone_outputs = teacher_model(batch)  # 教师模型的输出
+        student_outputs, student_backbone_outputs = student_model(batch)  # 学生模型的输出
         targets = batch.masks  # 获取目标数据（mask）
         batch_size = len(batch.img_batch)
 
@@ -493,7 +493,7 @@ class KnowledgeDistillationTrainer:
         # 计算KD hard_loss
         hard_loss = self.hard_loss[key](student_outputs, targets)  # TODO：hardloss取student_outputs最后输出结果
         # 计算KD soft_loss
-        soft_loss = self.soft_loss[key](teacher_outputs, student_outputs) # TODO:实现对中间结果计算soft_loss
+        soft_loss = self.soft_loss[key](teacher_backbone_outputs, student_backbone_outputs) # TODO:实现对中间结果计算soft_loss
 
 
         loss_str = f"Losses/{phase}_{key}_loss"

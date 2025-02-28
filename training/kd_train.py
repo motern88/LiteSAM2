@@ -24,7 +24,6 @@ from utils.train_utils import makedir, register_omegaconf_resolvers
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
 
-
 def single_proc_run(local_rank, main_port, cfg, world_size):
     """单GPU进程运行 / Single GPU process"""
     os.environ["MASTER_ADDR"] = "localhost"  # 设置主节点地址
@@ -131,30 +130,28 @@ def add_pythonpath_to_sys_path():
         return
     sys.path = os.environ["PYTHONPATH"].split(":") + sys.path
 
-
 def main(args) -> None:
     from hydra import initialize_config_dir,initialize, compose  
-    from hydra.core.global_hydra import GlobalHydra  
+    from hydra.core.global_hydra import GlobalHydra
     # 清除之前的 Hydra 实例  
     GlobalHydra.instance().clear()  
      # 获取项目根目录  
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  
 
-    # 初始化 Hydra 配置路径（teacher 配置路径）  
-    teacher_config_path = os.path.join(project_root, "efficient_track_anything")  
-    initialize_config_dir(config_dir=teacher_config_path, version_base="1.2")  
-    teacher_cfg = compose(config_name=args.t_config) 
+    # 初始化 Hydra 配置路径（teacher 配置路径）
+    teacher_config_path = os.path.join(project_root, "efficient_track_anything")
+    initialize_config_dir(config_dir=teacher_config_path, version_base="1.2")
+    teacher_cfg = compose(config_name=args.t_config)
 
+    # 清除之前的 Hydra 实例
+    GlobalHydra.instance().clear()
+    # 初始化 Hydra 配置路径（student 配置路径）
+    student_config_path = os.path.join(project_root, "lite_segment_anything_2")
+    initialize_config_dir(config_dir=student_config_path, version_base="1.2")
+    student_cfg = compose(config_name=args.s_config)
 
-    # 清除之前的 Hydra 实例  
-    GlobalHydra.instance().clear() 
-    # 初始化 Hydra 配置路径（student 配置路径）  
-    student_config_path = os.path.join(project_root, "lite_segment_anything_2")  
-    initialize_config_dir(config_dir=student_config_path, version_base="1.2")  
-    student_cfg = compose(config_name=args.s_config)  
-
-    # 清除之前的 Hydra 实例  
-    GlobalHydra.instance().clear() 
+    # 清除之前的 Hydra 实例
+    GlobalHydra.instance().clear()
     initialize_config_module("LiteSAM2", version_base="1.2")
 
 
@@ -163,33 +160,30 @@ def main(args) -> None:
         student_cfg.launcher.experiment_log_dir = os.path.join(
             os.getcwd(), "ETAM_logs", args.s_config
         )
-    # 打印 teacher 和 student 的配置  
-    # print("###################### Teacher Config ####################")
-    # print(OmegaConf.to_yaml(teacher_cfg))
-    # print("#########################################################")
-    # print("###################### Student Config ####################")
-    # print(OmegaConf.to_yaml(student_cfg))
-    # print("#########################################################")
 
     # 合并两个配置文件
-    # 1. 将 student model (trainer.model) 和teacher model配置提取出来
+    # 1. 将 student model (trainer.model) 和 teacher model 配置提取出来
     student_model_cfg = student_cfg.trainer.model if 'trainer' in student_cfg else OmegaConf.create()
     teacher_model_cfg = teacher_cfg.model if 'model' in teacher_cfg else OmegaConf.create()
-    # 2. combined_cfg 为 student_cfg 去除 trainer.model 配置后的配置
+    # 2. 提取并保留 trainer 中的其他配置
+    trainer_cfg = student_cfg.trainer if 'trainer' in student_cfg else OmegaConf.create()
+    # 3. 移除 trainer.model 配置
+    trainer_cfg = OmegaConf.to_container(trainer_cfg, resolve=True)
+    trainer_cfg.pop('model', None)  # 仅移除 model 字段
+    # 4. 将教师和学生模型配置分别放入 combined_cfg
+    trainer_cfg['teacher_model'] = teacher_model_cfg
+    trainer_cfg['student_model'] = student_model_cfg
+    # 5. 创建 combined_cfg 字典并添加 trainer 配置
     combined_cfg_dict = OmegaConf.to_container(student_cfg, resolve=True)
-    combined_cfg_dict.pop('trainer.model', None)  # 移除 trainer 字段
-    # 3. 将教师和学生模型配置分别放入 combined_cfg
-    combined_cfg_dict['trainer'] = OmegaConf.create({
-        'teacher_model': teacher_model_cfg,
-        'student_model': student_model_cfg
-    })
-    # 4. 将字典转换回 OmegaConf 对象
+    combined_cfg_dict['trainer'] = OmegaConf.create(trainer_cfg)
+    # 6. 修改 trainer.teacher_model._target_ 字段为 training.model.efficienttam.ETAMTrain
+    combined_cfg_dict['trainer']['teacher_model']['_target_'] = 'training.model.efficienttam.ETAMTrain'
+    # 7. 将字典转换回 OmegaConf 对象
     combined_cfg = OmegaConf.create(combined_cfg_dict)
-    # 打印合并后的kd训练配置,可以看到这里的trainer字段下包含了teacher_model和student_model的配置
+    # 打印合并后的 kd 训练配置，可以看到这里的 trainer 字段下包含了 teacher_model 和 student_model 的配置
     print("###################### Combined Config ####################")
     print(OmegaConf.to_yaml(combined_cfg))
     print("#########################################################")
-
 
     # 将PYTHONPATH添加到系统路径
     add_pythonpath_to_sys_path()
@@ -316,7 +310,6 @@ def main(args) -> None:
 
 
 if __name__ == "__main__":
-
     # initialize_config_module("efficient_track_anything", version_base="1.2")
     initialize_config_module("LiteSAM2", version_base="1.2")
     parser = ArgumentParser()

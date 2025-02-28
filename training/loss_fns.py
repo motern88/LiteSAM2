@@ -11,6 +11,7 @@ import torch
 import torch.distributed
 import torch.nn as nn
 import torch.nn.functional as F
+from torchgen.native_function_generation import self_to_out_signature
 
 from training.trainer import CORE_LOSS_KEY
 
@@ -186,7 +187,9 @@ class MultiStepMultiMasksAndIous(nn.Module):
         """
 
         super().__init__()
+        # 保存损失权重字典。
         self.weight_dict = weight_dict
+        # 设置 focal loss 的 alpha 和 gamma 参数。
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
         assert "loss_mask" in self.weight_dict
@@ -234,18 +237,21 @@ class MultiStepMultiMasksAndIous(nn.Module):
         """
         Compute the losses related to the masks: the focal loss and the dice loss.
         and also the MAE or MSE loss between predicted IoUs and actual IoUs.
+        /
         计算与掩码相关的损失：包括 focal 损失和 dice 损失，
         以及预测的 IoU 与实际 IoU 之间的 MAE 或 MSE 损失。
 
         Here "multistep_pred_multimasks_high_res" is a list of multimasks (tensors
         of shape [N, M, H, W], where M could be 1 or larger, corresponding to
         one or multiple predicted masks from a click.
+        /
         这里的 "multistep_pred_multimasks_high_res" 是一个多掩码的列表
         （张量形状为 [N, M, H, W]，其中 M 可能为 1 或更大，表示来自一次点击的一个或多个预测掩码）。
 
         We back-propagate focal, dice losses only on the prediction channel
         with the lowest focal+dice loss between predicted mask and ground-truth.
         If `supervise_all_iou` is True, we backpropagate ious losses for all predicted masks.
+        /
         我们只在预测掩码与真实掩码之间的 focal 和 dice 损失最小的预测通道上反向传播 focal 和 dice 损失。
         如果 supervise_all_iou 为 True，我们将对所有预测的掩码反向传播 IoU 损失。
         """
@@ -385,3 +391,47 @@ class MultiStepMultiMasksAndIous(nn.Module):
                 reduced_loss += losses[loss_key] * weight
 
         return reduced_loss
+
+
+class KnowledgeDistillationSoftLoss(nn.Module):
+    '''
+           [--> teacher_model --> softmax(T=t) --> soft_labels  -]
+    input -[                                                     ]--> loss_fn
+           [--> student_model --> softmax(T=t) --> soft_predict -]
+    '''
+    def __init__(
+        self,
+        temperature = 1,
+        kd_modules = [],  # 要蒸馏的模块 ["image_encoder","memory_attention","memory_encoder","mask_decoder"]
+    ):
+        super().__init__()
+        self.temperature = temperature
+        self.kd_modules = kd_modules
+
+
+    def forward(self,student_backbone_outputs,teacher_backbone_outputs):
+        '''
+        拿到teacher_model和student_model的输出结果，
+        根据kd_modules中需要计算的模块获取对应的中间结果输出，并计算蒸馏损失
+        '''
+        loss = 0
+
+        # 计算image_encoder部分的特征损失
+        if "image_encoder" in self.kd_modules:
+            # 对image_encoder部分的特征计算MSE_loss
+            image_encoder_loss = self.MSE_loss(
+                student_backbone_outputs["vision_features"],
+                teacher_backbone_outputs["vision_features"]
+            )
+            loss = loss + image_encoder_loss * 1.0
+
+        return loss
+
+    def MSE_loss(self,teacher_features,student_features):
+        '''
+        teacher_features (torch.Tensor): 教师模型的输出特征，形状为 [batch_size, channels, height, width]
+        student_features (torch.Tensor): 学生模型的输出特征，形状为 [batch_size, channels, height, width]
+        '''
+        # 计算 MSE 损失
+        loss = F.mse_loss(student_features, teacher_features)
+        return loss

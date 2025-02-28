@@ -101,7 +101,6 @@ class EfficientTAMBase(torch.nn.Module):
         compile_image_encoder: bool = False,
     ):
         super().__init__()
-
         # Part 1: the image backbone
         self.image_encoder = image_encoder
         self.use_high_res_features_in_sam = False

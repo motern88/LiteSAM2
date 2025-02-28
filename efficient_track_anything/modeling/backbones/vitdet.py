@@ -22,7 +22,11 @@ from efficient_track_anything.modeling.efficienttam_utils import (
 
 
 class Attention(nn.Module):
-    """Multi-head Attention block with relative position embeddings."""
+    """
+    Multi-head Attention block with relative position embeddings.
+    /
+    多头注意力机制块与相对位置编码
+    """
 
     def __init__(
         self,
@@ -114,9 +118,25 @@ class Block(nn.Module):
             input_size (int or None): Input resolution for calculating the relative positional
                 parameter size.
             dropout (float): Dropout rate.
+        /
+        参数:
+            dim (int): 输入通道数。
+            num_heads (int): 每个 ViT 块中的注意力头数。
+            mlp_ratio (float): MLP 隐藏层维度与输入维度的比值。
+            qkv_bias (bool): 如果为 True，则为查询、键和值添加可学习偏置。
+            drop_path (float): 随机深度率，表示丢弃的概率。
+            norm_layer (nn.Module): 使用的归一化层。
+            act_layer (nn.Module): 激活函数层。
+            use_rel_pos (bool): 如果为 True，则在注意力图中添加相对位置编码。
+            rel_pos_zero_init (bool): 如果为 True，则将相对位置编码参数初始化为零。
+            window_size (int): 窗口注意力块的窗口大小。为 0 时，不使用窗口注意力。
+            input_size (int 或 None): 输入分辨率，用于计算相对位置编码的大小。
+            dropout (float): dropout 比例。
         """
         super().__init__()
+        # 第一层归一化
         self.norm1 = norm_layer(dim)
+        # 注意力层
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -125,12 +145,15 @@ class Block(nn.Module):
             rel_pos_zero_init=rel_pos_zero_init,
             input_size=input_size if window_size == 0 else (window_size, window_size),
         )
+        # 如果使用 LayerScale，则为注意力输出添加层级缩放
         self.ls1 = (
             LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         )
+        # 随机深度（DropPath）层。随机丢弃某些路径（即随机跳过某些网络层的计算）
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-
+        # 第二层归一化
         self.norm2 = norm_layer(dim)
+        # MLP 层
         self.mlp = MLP(
             dim,
             int(dim * mlp_ratio),
@@ -138,26 +161,34 @@ class Block(nn.Module):
             num_layers=2,
             activation=act_layer,
         )
+        # MLP 输出加权（如果使用 LayerScale）
         self.ls2 = (
             LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         )
+        # dropout 层
         self.dropout = nn.Dropout(dropout)
+        # 窗口大小
         self.window_size = window_size
 
     def forward(self, x):
-        shortcut = x
+        shortcut = x  # 保存输入，用于残差连接
+        # 归一化输入
         x = self.norm1(x)
-        # Window partition
+
+        # 如果使用窗口注意力，将输入拆分成多个窗口 / Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
 
-        x = self.ls1(self.attn(x))
-        # Reverse window partition
+        x = self.ls1(self.attn(x))  # 计算注意力
+
+        # 如果使用窗口注意力，恢复窗口拆分后的输入 / Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
+        # 残差连接和 DropPath
         x = shortcut + self.dropout(self.drop_path(x))
+        # MLP 和第二个残差连接
         x = x + self.dropout(self.drop_path(self.ls2(self.mlp(self.norm2(x)))))
 
         return x
@@ -226,6 +257,7 @@ class ViT(nn.Module):
         super().__init__()
         self.pretrain_use_cls_token = pretrain_use_cls_token
 
+        # 图像块嵌入（Patch embedding）
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
             stride=(patch_size, patch_size),
@@ -234,23 +266,29 @@ class ViT(nn.Module):
             embed_dim=embed_dim,
         )
 
+        # 如果使用绝对位置嵌入
         if use_abs_pos:
-            # Initialize absolute positional embedding with pretrain image size.
+            # 初始化预训练图像大小的绝对位置编码 / Initialize absolute positional embedding with pretrain image size.
             num_patches = (pretrain_img_size // patch_size) * (
                 pretrain_img_size // patch_size
             )
             num_positions = (num_patches + 1) if pretrain_use_cls_token else num_patches
+            # 初始化位置嵌入
             self.pos_embed = nn.Parameter(torch.zeros(1, num_positions, embed_dim))
         else:
             self.pos_embed = None
 
-        # stochastic depth decay rule
+        # 随机深度衰减规则 / stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
 
-        self.blocks = nn.ModuleList()
-        self.full_attn_ids = []
+        self.blocks = nn.ModuleList()  # Transformer block 的列表
+
+        # 在前向传播时，这些层的输出会被保留下来，供后续使用或返回中间层的特征。
+        # 通过将全局注意力与局部窗口注意力结合使用，ViT能够在计算效率和表现力之间找到一个平衡。
+        self.full_attn_ids = []  # 全局注意力的 block 索引，列表记录了哪些 Transformer block 采用了全局注意力机制
         cur_stage = 1
         for i in range(depth):
+            # 创建每个 ViT block
             block = Block(
                 dim=embed_dim,
                 num_heads=num_heads,
@@ -266,12 +304,15 @@ class ViT(nn.Module):
                 dropout=dropout,
                 init_values=init_values,
             )
+            # 如果该 block 不是窗口注意力 block，则将其加入全局注意力 block 列表
             if i not in window_block_indexes:
                 self.full_attn_ids.append(i)
                 cur_stage += 1
 
+            # 将 block 加入网络中
             self.blocks.append(block)
 
+        # 是否返回中间层
         self.return_interm_layers = return_interm_layers
         self.channel_list = (
             [embed_dim] * len(self.full_attn_ids)
@@ -280,24 +321,29 @@ class ViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-
+        # 图像块嵌入（Patch embedding）
         x = self.patch_embed(x)
+        # 如果使用位置嵌入
         if self.pos_embed is not None:
             x = x + get_abs_pos(
                 self.pos_embed, self.pretrain_use_cls_token, (x.shape[1], x.shape[2])
             )
 
-        outputs = []
+        outputs = []  # 存储输出的中间层
         for i, blk in enumerate(self.blocks):
+            # 每个 Transformer block 的计算
             x = blk(x)
+            # 如果是最后一个全局注意力 block 或需要返回中间层
             if (i == self.full_attn_ids[-1]) or (
                 self.return_interm_layers and i in self.full_attn_ids
             ):
+                # 将输出从 (B, C, H, W) 转为 (B, H, W, C)
                 feats = x.permute(0, 3, 1, 2)
                 outputs.append(feats)
 
         return outputs
 
+    # 获取层的 ID，根据给定的层名
     def get_layer_id(self, layer_name):
         # https://github.com/microsoft/unilm/blob/master/beit/optim_factory.py#L33
         num_layers = self.get_num_layers()
@@ -313,5 +359,6 @@ class ViT(nn.Module):
         else:
             return num_layers + 1
 
+    # 获取 ViT 中 block 的数量
     def get_num_layers(self) -> int:
         return len(self.blocks)
